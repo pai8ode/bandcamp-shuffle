@@ -25,9 +25,9 @@ SEARCH_API = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elasti
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) bandcamp-shuffle"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "bandcamp-shuffle"
 COLLECTIONS_DIR = CACHE_DIR / "collections"  # <fan id>.json: {"fan", "synced_at", "items"}
-FAN_FILE = CACHE_DIR / "fan.json"
+FAN_FILE = CACHE_DIR / "fan.json"  # the collection being shuffled; fedexlatte when missing
 FAVORITES_ONLY_FILE = CACHE_DIR / "favorites-only"  # present = shuffle only starred songs
-FAV_RECENT_FILE = CACHE_DIR / "recent-favorites.json"  # the collection being shuffled; fedexlatte when missing
+FAV_RECENT_FILE = CACHE_DIR / "recent-favorites.json"  # recently played favorites, to avoid repeats
 LEGACY_COLLECTION_FILE = CACHE_DIR / "collection.json"  # before per-fan caches
 LEGACY_RECENT_FILE = CACHE_DIR / "recent.json"
 OMARCHY_BIN = Path("/usr/share/omarchy/bin")
