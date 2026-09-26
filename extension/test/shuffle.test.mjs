@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   parseCollectionPage, dedupe, parseTralbumDetails, tralbumDetailsUrl,
   pickRelease, pushRecent, adjustVolume,
+  DEFAULT_FAN, parseProfileInput, parseFanPage, parseFanSearch,
 } from "../lib/shuffle.js";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url)));
@@ -76,4 +77,40 @@ test("adjustVolume steps, sets, and clamps", () => {
   assert.equal(adjustVolume(50, 72), 72);
   assert.equal(adjustVolume(50, "150"), 100);
   assert.throws(() => adjustVolume(50, "loud"));
+});
+
+test("DEFAULT_FAN is fedexlatte", () => {
+  assert.deepEqual(DEFAULT_FAN, { id: 2201246, username: "fedexlatte", name: "p" });
+});
+
+test("parseProfileInput reads usernames from links and @handles", () => {
+  assert.equal(parseProfileInput("https://bandcamp.com/fedexlatte"), "fedexlatte");
+  assert.equal(parseProfileInput("bandcamp.com/fedexlatte"), "fedexlatte");
+  assert.equal(parseProfileInput("  www.bandcamp.com/some_fan-1/wishlist?from=menubar "), "some_fan-1");
+  assert.equal(parseProfileInput("http://bandcamp.com/Fedexlatte#x"), "Fedexlatte");
+  assert.equal(parseProfileInput("@fedexlatte"), "fedexlatte");
+});
+
+test("parseProfileInput leaves plain text and non-profile links for search", () => {
+  assert.equal(parseProfileInput("fedex"), null);
+  assert.equal(parseProfileInput("two words"), null);
+  assert.equal(parseProfileInput(""), null);
+  assert.equal(parseProfileInput("https://artist.bandcamp.com/album/x"), null); // an artist, not a fan
+  assert.equal(parseProfileInput("https://bandcamp.com/search?q=x"), null);
+  assert.equal(parseProfileInput("https://bandcamp.com/discover"), null);
+});
+
+test("parseFanPage reads the fan behind a profile page", () => {
+  const page = readFileSync(new URL("fan_page.html", import.meta.url), "utf8");
+  assert.deepEqual(parseFanPage(page), { id: 2201246, username: "fedexlatte", name: "p", collectionSize: 1439 });
+  assert.equal(parseFanPage("<html>not a fan page</html>"), null);
+});
+
+test("parseFanSearch returns fans with collection sizes", () => {
+  const results = parseFanSearch(fixture("search_fans.json"));
+  assert.ok(results.length > 0);
+  assert.deepEqual(Object.keys(results[0]).sort(), ["collectionSize", "id", "image", "name", "username"]);
+  assert.equal(results[0].username, "_fede");
+  assert.equal(parseFanSearch({ auto: { results: [{ type: "b", id: 1 }] } }).length, 0);
+  assert.deepEqual(parseFanSearch({}), []);
 });

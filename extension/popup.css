@@ -23,6 +23,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -117,3 +118,57 @@ footer {
 }
 .link { background: none; color: var(--accent); padding: 0; font-weight: 600; }
 .link:disabled { color: var(--muted); cursor: default; }
+
+.source {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.source-text { min-width: 0; display: flex; align-items: baseline; gap: 6px; white-space: nowrap; overflow: hidden; }
+.source-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.source-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.source-user { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+.picker { display: grid; gap: 8px; margin-top: -4px; }
+.picker input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.picker input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+
+.results { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 232px; overflow-y: auto; }
+.results:empty { display: none; }
+.results .note { color: var(--muted); font-size: 12px; padding: 6px 2px; }
+.results button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+}
+.results button:hover:not(:disabled), .results button:focus-visible { background: var(--surface); }
+.results button:disabled { opacity: 0.5; cursor: default; }
+.results button[aria-selected="true"] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--line) center / cover no-repeat;
+}
+.who { min-width: 0; display: grid; }
+.who strong, .who span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.who span { color: var(--muted); font-size: 12px; }
+
+.picker-foot { display: flex; justify-content: space-between; font-size: 12px; }

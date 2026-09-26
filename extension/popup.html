@@ -7,6 +7,25 @@
 </head>
 <body>
   <main>
+    <section class="source">
+      <div class="source-text">
+        <span class="source-label">Collection</span>
+        <span class="source-name" id="fan-name">p</span>
+        <span class="source-user" id="fan-user">@fedexlatte</span>
+      </div>
+      <button id="change" class="link" aria-expanded="false" aria-controls="picker">Change</button>
+    </section>
+
+    <section class="picker" id="picker" hidden>
+      <input id="picker-input" type="search" autocomplete="off" spellcheck="false"
+             placeholder="Search users or paste bandcamp.com/username"
+             aria-label="Search Bandcamp users or paste a profile link">
+      <ul class="results" id="results" role="listbox" aria-label="Collections"></ul>
+      <div class="picker-foot">
+        <button id="reset" class="link">Back to fedexlatte</button>
+      </div>
+    </section>
+
     <section class="now">
       <div class="art" id="art" aria-hidden="true">
         <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>

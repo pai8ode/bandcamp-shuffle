@@ -1,7 +1,8 @@
 // Pure shuffle logic shared by the offscreen player; no browser APIs here.
 
-export const FAN_ID = 2201246;
+export const DEFAULT_FAN = { id: 2201246, username: "fedexlatte", name: "p" };
 export const COLLECTION_API = "https://bandcamp.com/api/fancollection/1/collection_items";
+export const SEARCH_API = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic";
 export const RECENT_LIMIT = 50;
 export const VOLUME_STEP = 5;
 
@@ -67,4 +68,56 @@ export function adjustVolume(current, action) {
     if (action === "" || !Number.isFinite(level)) throw new Error(`volume must be up, down, or 0-100, not ${action}`);
   }
   return Math.max(0, Math.min(100, Math.round(level)));
+}
+
+// bandcamp.com paths that are site pages rather than fan profiles.
+const NOT_FANS = new Set(["search", "discover", "about", "help", "login", "signup", "tag", "artists", "labels", "feed", "settings", "api", "EmbeddedPlayer"]);
+
+// Returns the username in a bandcamp.com/<username> link or an @handle, or
+// null for anything else (plain text is a search).
+export function parseProfileInput(text) {
+  const input = text.trim();
+  const handle = input.match(/^@([\w-]+)$/);
+  if (handle) return handle[1];
+  const link = input.match(/^(?:https?:\/\/)?(?:www\.)?bandcamp\.com\/([\w-]+)(?:[/?#]|$)/i);
+  if (link && !NOT_FANS.has(link[1])) return link[1];
+  return null;
+}
+
+export const profileUrl = (username) => `https://bandcamp.com/${encodeURIComponent(username)}`;
+
+// Reads the fan from a profile page's embedded page data.
+export function parseFanPage(page) {
+  const match = page.match(/id="pagedata" data-blob="([^"]*)"/);
+  if (!match) return null;
+  const data = JSON.parse(decodeHtml(match[1]));
+  const fan = data.fan_data;
+  if (!fan?.fan_id) return null;
+  return {
+    id: fan.fan_id,
+    username: fan.username,
+    name: fan.name || fan.username,
+    collectionSize: data.collection_count ?? data.collection_data?.item_count ?? 0,
+  };
+}
+
+export function fanSearchBody(text) {
+  return { search_text: text, search_filter: "f", full_page: false, fan_id: null };
+}
+
+export function parseFanSearch(data) {
+  return (data.auto?.results || [])
+    .filter((result) => result.type === "f")
+    .map((result) => ({
+      id: result.id,
+      username: result.username,
+      name: result.name || result.username,
+      collectionSize: result.collection_size ?? 0,
+      image: result.img || "",
+    }));
+}
+
+function decodeHtml(text) {
+  return text.replace(/&(quot|amp|lt|gt|#39|#x27|#(\d+));/g, (_, name, code) =>
+    code ? String.fromCharCode(Number(code)) : { quot: '"', amp: "&", lt: "<", gt: ">", "#39": "'", "#x27": "'" }[name]);
 }

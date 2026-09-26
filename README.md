@@ -17,6 +17,10 @@ Then pin **Bandcamp Shuffle** from the toolbar's extensions (puzzle-piece) menu.
 
 ## Using it
 
+- **Collection** — starts on fedexlatte. Click *Change* to search Bandcamp
+  users or paste a `bandcamp.com/username` link; *Back to fedexlatte* returns
+  to the default. Each collection is remembered, so switching back is instant.
+
 - **Shuffle / Skip** — start, or jump to another random track
 - **Pause** and **Stop**
 - **Volume** — a separate volume just for Bandcamp Shuffle
