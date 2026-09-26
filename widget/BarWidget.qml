@@ -10,6 +10,13 @@ BarWidget {
 
   readonly property string command: Quickshell.env("HOME") + "/.local/bin/bandcamp-shuffle"
   property bool playing: false
+  property int volume: 100
+
+  function setVolume(level) {
+    root.volume = Math.max(0, Math.min(100, level))
+    Quickshell.execDetached([root.command, "volume", String(root.volume)])
+    if (root.bar) root.bar.showTooltip(button, button.tooltipText)
+  }
 
   function refresh() {
     if (!statusProc.running) statusProc.running = true
@@ -28,6 +35,19 @@ BarWidget {
     command: [root.command, "status"]
     onExited: function(exitCode) {
       root.playing = exitCode === 0
+    }
+  }
+
+  Process {
+    id: volumeProc
+    command: [root.command, "volume"]
+    running: true
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        const level = parseInt(text)
+        if (!isNaN(level)) root.volume = level
+      }
     }
   }
 
@@ -51,9 +71,12 @@ BarWidget {
     bar: root.bar
     text: ""
     dimmed: !root.playing
-    tooltipText: root.playing
-      ? "Bandcamp shuffle · click: skip · right-click: stop"
-      : "Bandcamp shuffle · click: play · middle-click: resync collection"
+    tooltipText: "Bandcamp shuffle · " + root.volume + "%\n" + (root.playing
+      ? "click: skip · right-click: stop · scroll: volume"
+      : "click: play · middle-click: resync · scroll: volume")
+    onWheelMoved: function(delta) {
+      if (delta !== 0) root.setVolume(root.volume + (delta > 0 ? 5 : -5))
+    }
     onPressed: function(b) {
       if (b === Qt.RightButton) root.run("stop")
       else if (b === Qt.MiddleButton) root.run("sync")

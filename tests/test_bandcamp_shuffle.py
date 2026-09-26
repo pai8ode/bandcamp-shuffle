@@ -73,5 +73,24 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(bs.push_recent(["a", "b", "c"], "d", limit=3), ["b", "c", "d"])
 
 
+class AdjustVolumeTest(unittest.TestCase):
+    def test_steps_up_and_down_by_five(self):
+        self.assertEqual(bs.adjust_volume(50, "up"), 55)
+        self.assertEqual(bs.adjust_volume(50, "down"), 45)
+
+    def test_clamps_to_zero_and_hundred(self):
+        self.assertEqual(bs.adjust_volume(98, "up"), 100)
+        self.assertEqual(bs.adjust_volume(3, "down"), 0)
+        self.assertEqual(bs.adjust_volume(50, "150"), 100)
+        self.assertEqual(bs.adjust_volume(50, "-10"), 0)
+
+    def test_sets_absolute_level(self):
+        self.assertEqual(bs.adjust_volume(50, "72"), 72)
+
+    def test_rejects_unknown_action(self):
+        with self.assertRaises(ValueError):
+            bs.adjust_volume(50, "loud")
+
+
 if __name__ == "__main__":
     unittest.main()

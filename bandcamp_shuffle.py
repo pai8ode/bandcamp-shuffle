@@ -7,6 +7,7 @@ import os
 import random
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -20,10 +21,14 @@ CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "ba
 COLLECTION_FILE = CACHE_DIR / "collection.json"
 RECENT_FILE = CACHE_DIR / "recent.json"
 LOG_FILE = CACHE_DIR / "log"
-PID_FILE = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "bandcamp-shuffle.pid"
+VOLUME_FILE = CACHE_DIR / "volume"
+RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+PID_FILE = RUNTIME_DIR / "bandcamp-shuffle.pid"
+MPV_SOCKET = RUNTIME_DIR / "bandcamp-shuffle.sock"
 MAX_CACHE_AGE = 7 * 24 * 3600
 RECENT_LIMIT = 50
 MAX_FAILURES = 5
+VOLUME_STEP = 5
 
 TRALBUM_RE = re.compile(r'data-tralbum="([^"]*)"')
 
@@ -77,6 +82,20 @@ def pick_release(items, recent, rng):
 def push_recent(recent, url, limit=50):
     recent = [u for u in recent if u != url] + [url]
     return recent[-limit:]
+
+
+def adjust_volume(current, action):
+    """Apply "up", "down", or an absolute level to a 0-100 volume."""
+    if action == "up":
+        level = current + VOLUME_STEP
+    elif action == "down":
+        level = current - VOLUME_STEP
+    else:
+        try:
+            level = int(action)
+        except ValueError:
+            raise ValueError(f"volume must be up, down, or 0-100, not {action!r}") from None
+    return max(0, min(100, level))
 
 
 # --- I/O -------------------------------------------------------------------
@@ -174,9 +193,13 @@ class Player:
         self.proc = subprocess.Popen([
             "mpv", "--no-video", "--really-quiet",
             f"--force-media-title={track['artist']} — {track['title']}",
+            f"--volume={read_volume()}",
+            f"--input-ipc-server={MPV_SOCKET}",
             track["url"],
         ])
         code = self.proc.wait()
+        if code != 0 and not self.skipping:
+            print(f"mpv exited {code}: {track['artist']} — {track['title']}", flush=True)
         self.proc = None
         return code == 0 or self.skipping
 
@@ -198,6 +221,8 @@ def run():
             except OSError as err:
                 print(f"fetch failed: {release['url']}: {err}", flush=True)
                 tracks = []
+            if not tracks:
+                print(f"nothing streamable: {release['url']}", flush=True)
             ok = bool(tracks) and player.play(rng.choice(tracks))
             failures = 0 if ok else failures + 1
             if failures >= MAX_FAILURES:
@@ -235,13 +260,42 @@ def status():
     sys.exit(0 if running_pid() else 1)
 
 
-COMMANDS = {"sync": sync, "run": run, "start": start, "skip": skip, "stop": stop, "status": status}
+def read_volume():
+    try:
+        return adjust_volume(100, VOLUME_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return 100
+
+
+def volume(action=None):
+    """Print the volume, after changing it (live, if a track is playing) when given an action."""
+    level = read_volume()
+    if action is not None:
+        level = adjust_volume(level, action)
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        VOLUME_FILE.write_text(str(level))
+        if running_pid():
+            try:
+                with socket.socket(socket.AF_UNIX) as sock:
+                    sock.connect(str(MPV_SOCKET))
+                    sock.sendall(json.dumps({"command": ["set_property", "volume", level]}).encode() + b"\n")
+            except OSError:
+                pass  # between tracks; the next one starts at the saved level
+    print(level)
+
+
+COMMANDS = {"sync": sync, "run": run, "start": start, "skip": skip, "stop": stop, "status": status, "volume": volume}
+USAGE = f"usage: bandcamp-shuffle {{{'|'.join(COMMANDS)}}}  (volume [up|down|0-100])"
 
 
 def main(argv):
-    if len(argv) != 2 or argv[1] not in COMMANDS:
-        sys.exit(f"usage: bandcamp-shuffle {{{'|'.join(COMMANDS)}}}")
-    COMMANDS[argv[1]]()
+    command, args = (argv[1], argv[2:]) if len(argv) > 1 else (None, [])
+    if command not in COMMANDS or len(args) > (1 if command == "volume" else 0):
+        sys.exit(USAGE)
+    try:
+        COMMANDS[command](*args)
+    except ValueError as err:
+        sys.exit(str(err))
 
 
 if __name__ == "__main__":
