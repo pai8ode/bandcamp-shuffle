@@ -40,6 +40,21 @@ class ParseCollectionPageTest(unittest.TestCase):
         self.assertTrue(more)
         self.assertEqual(token, "1783701096:3658257947:a::")
 
+    def test_token_comes_from_last_item_not_last_token(self):
+        # With count=100 the API's last_token lags ~20 items behind the page end.
+        data = json.loads((FIXTURES / "collection_items.json").read_text())
+        data["last_token"] = data["items"][0]["token"]
+
+        _, _, token = bs.parse_collection_page(data)
+
+        self.assertEqual(token, data["items"][-1]["token"])
+
+
+class DedupeTest(unittest.TestCase):
+    def test_keeps_first_occurrence_of_each_url(self):
+        items = [{"url": "a", "title": "1"}, {"url": "b"}, {"url": "a", "title": "2"}]
+        self.assertEqual(bs.dedupe(items), [{"url": "a", "title": "1"}, {"url": "b"}])
+
 
 class SelectionTest(unittest.TestCase):
     ITEMS = [{"url": f"u{i}"} for i in range(5)]
