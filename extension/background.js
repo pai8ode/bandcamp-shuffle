@@ -91,7 +91,7 @@ async function searchFans(text) {
 
 async function lookupFan(username) {
   const res = await fetch(profileUrl(username));
-  if (res.status === 404) return { error: `No Bandcamp user @${username}` };
+  if (res.status === 404) return { error: `No Bandcamp user @${username}`, notFound: true };
   if (!res.ok) return { error: `Couldn't open @${username} (Bandcamp returned ${res.status})` };
   const fan = parseFanPage(await res.text());
   return fan ? { fan } : { error: `bandcamp.com/${username} isn't a fan profile` };

@@ -142,10 +142,16 @@ class PickMenuTest(unittest.TestCase):
     FEDEX = bs.DEFAULT_FAN
     OTHER = {"id": 9, "username": "_fede", "name": "_fede"}
 
-    def run_pick(self, choices, inputs=(), running=False, current=None, saved=None, found=()):
+    def run_pick(self, choices, inputs=(), running=False, current=None, saved=None, found=(), profiles=None):
         """Run pick() with scripted menu answers; return what it did."""
         calls = {"switch": [], "stop": 0, "notify": [], "menus": []}
         choices, inputs = list(choices), list(inputs)
+        profiles = profiles or {}
+
+        def lookup(username):
+            if username not in profiles:
+                raise bs.FanNotFound(f"No Bandcamp user @{username}")
+            return profiles[username]
 
         def select(prompt, rows):
             calls["menus"].append((prompt, rows))
@@ -158,7 +164,8 @@ class PickMenuTest(unittest.TestCase):
             running_pid=lambda: 123 if running else None,
             current_fan=lambda: current or self.FEDEX,
             saved_collections=lambda: saved if saved is not None else [(self.FEDEX, 1375), (self.OTHER, 9)],
-            search_fans=lambda text: list(found),
+            search_fans=lambda text: calls.setdefault("searched", []).append(text) or list(found),
+            lookup_fan=lambda username: lookup(username),
             switch_to=lambda fan: calls["switch"].append(fan["username"]),
             use=lambda target: calls["switch"].append(f"use:{target}"),
             stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
@@ -191,10 +198,22 @@ class PickMenuTest(unittest.TestCase):
         calls = self.run_pick([])
         self.assertEqual((calls["switch"], calls["stop"], calls["notify"]), ([], 0, []))
 
-    def test_pasting_a_link_uses_it_directly(self):
-        calls = self.run_pick([bs.MENU_SEARCH], inputs=["bandcamp.com/someone"])
-        self.assertEqual(calls["switch"], ["use:bandcamp.com/someone"])
+    def test_pasting_a_link_switches_directly(self):
+        someone = {"id": 7, "username": "someone", "name": "Someone"}
+        calls = self.run_pick([bs.MENU_SEARCH], inputs=["bandcamp.com/someone"], profiles={"someone": someone})
+        self.assertEqual(calls["switch"], ["someone"])
         self.assertEqual(len(calls["menus"]), 1)  # no results list for a link
+
+    def test_link_to_a_missing_user_offers_similar_names(self):
+        found = [{"id": 8, "username": "onepie", "name": "hotPai", "collection_size": 2}]
+        calls = self.run_pick([bs.MENU_SEARCH, "hotPai\t@onepie · 2 releases"], inputs=["@hotPai"], found=found)
+        self.assertEqual(calls["searched"], ["hotPai"])
+        self.assertEqual(calls["menus"][1][0], "No user @hotPai — similar names")
+        self.assertEqual(calls["switch"], ["onepie"])
+
+    def test_link_to_a_missing_user_with_no_similar_names_says_so(self):
+        calls = self.run_pick([bs.MENU_SEARCH], inputs=["@zzzz"], found=[])
+        self.assertEqual(calls["notify"], ["No Bandcamp user @zzzz, and no similar names"])
 
     def test_searching_lists_users_then_switches_to_the_pick(self):
         found = [{"id": 5, "username": "fede", "name": "Fede", "collection_size": 1},
@@ -212,6 +231,17 @@ class PickMenuTest(unittest.TestCase):
     def test_search_with_no_results_says_so(self):
         calls = self.run_pick([bs.MENU_SEARCH], inputs=["zzzz"], found=[])
         self.assertEqual(calls["notify"], ['No Bandcamp users match "zzzz"'])
+
+
+class UseSuggestionTest(unittest.TestCase):
+    def test_use_suggests_the_closest_name_for_a_missing_user(self):
+        found = [{"id": 8, "username": "onepie", "name": "hotPai", "collection_size": 2}]
+        with mock.patch.multiple(bs, lookup_fan=mock.Mock(side_effect=bs.FanNotFound("No Bandcamp user @hotPai")),
+                                 search_fans=lambda text: found):
+            with self.assertRaises(RuntimeError) as caught:
+                bs.use("bandcamp.com/hotPai")
+        self.assertEqual(str(caught.exception),
+                         "No Bandcamp user @hotPai. Did you mean hotPai (@onepie)? Run: bandcamp-shuffle use onepie")
 
 
 if __name__ == "__main__":

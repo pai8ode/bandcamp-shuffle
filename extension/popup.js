@@ -110,9 +110,16 @@ function fanOption(fan, first) {
   return li;
 }
 
-function showFans(fans) {
+function showFans(fans, heading) {
   if (!fans.length) return note("No users found");
-  results.replaceChildren(...fans.map((fan, i) => fanOption(fan, i === 0)));
+  const options = fans.map((fan, i) => fanOption(fan, i === 0));
+  if (heading) {
+    const li = document.createElement("li");
+    li.className = "note";
+    li.textContent = heading;
+    options.unshift(li);
+  }
+  results.replaceChildren(...options);
 }
 
 async function choose(fan) {
@@ -122,12 +129,20 @@ async function choose(fan) {
 
 async function lookup(text, q) {
   const username = parseProfileInput(text);
-  const res = username
-    ? await send("lookup", { value: username })
-    : await send("search", { value: text });
+  if (!username) {
+    const res = await send("search", { value: text });
+    if (q !== query) return;
+    return res?.error ? note(res.error) : showFans(res.results);
+  }
+  const res = await send("lookup", { value: username });
   if (q !== query) return;
-  if (res?.error) note(res.error);
-  else showFans(username ? [res.fan] : res.results);
+  if (res?.fan) return showFans([res.fan]);
+  if (!res?.notFound) return note(res?.error || "Lookup failed");
+  // Display names aren't usernames (hotPai is @onepie), so offer similar names.
+  const similar = await send("search", { value: username });
+  if (q !== query) return;
+  if (similar?.results?.length) showFans(similar.results, `No user @${username} — similar names:`);
+  else note(`No Bandcamp user @${username}, and no similar names`);
 }
 
 input.addEventListener("input", () => {

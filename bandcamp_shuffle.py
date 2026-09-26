@@ -279,12 +279,16 @@ def search_fans(text):
         SEARCH_API, {"search_text": text, "search_filter": "f", "full_page": False, "fan_id": None}))
 
 
+class FanNotFound(RuntimeError):
+    """bandcamp.com/<username> doesn't exist — often a display name typed as a username."""
+
+
 def lookup_fan(username):
     try:
         page = http_get(profile_url(username))
     except urllib.error.HTTPError as err:
         if err.code == 404:
-            raise RuntimeError(f"No Bandcamp user @{username}") from None
+            raise FanNotFound(f"No Bandcamp user @{username}") from None
         raise RuntimeError(f"Couldn't open @{username} (Bandcamp returned {err.code})") from None
     fan = parse_fan_page(page)
     if not fan:
@@ -429,7 +433,16 @@ def use(target):
     username = parse_profile_input(target) or target.strip().lstrip("@")
     if not re.fullmatch(r"[\w-]+", username):
         raise RuntimeError(f"Not a Bandcamp username or profile link: {target}")
-    switch_to(lookup_fan(username))
+    try:
+        found = lookup_fan(username)
+    except FanNotFound as err:
+        similar = search_fans(username)
+        if similar:
+            best = similar[0]
+            raise RuntimeError(f"{err}. Did you mean {best['name']} (@{best['username']})? "
+                               f"Run: bandcamp-shuffle use {best['username']}") from None
+        raise
+    switch_to(found)
 
 
 def search(text):
@@ -495,12 +508,22 @@ def search_menu():
     text = menu_input("Search users or paste bandcamp.com/username")
     if not text:
         return
-    if parse_profile_input(text):
-        return use(text)
-    found = search_fans(text)
-    if not found:
-        return notify(f'No Bandcamp users match "{text}"')
-    choice = menu_select(f'Users matching "{text}"', [fan_row(f, f["collection_size"]) for f in found])
+    username = parse_profile_input(text)
+    if username:
+        try:
+            return switch_to(lookup_fan(username))
+        except FanNotFound:
+            # Display names aren't usernames (hotPai is @onepie), so offer similar names.
+            found = search_fans(username)
+            if not found:
+                return notify(f"No Bandcamp user @{username}, and no similar names")
+            prompt = f"No user @{username} — similar names"
+    else:
+        found = search_fans(text)
+        if not found:
+            return notify(f'No Bandcamp users match "{text}"')
+        prompt = f'Users matching "{text}"'
+    choice = menu_select(prompt, [fan_row(f, f["collection_size"]) for f in found])
     if choice is None:
         return
     username = username_from_selection(choice)
