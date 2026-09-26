@@ -33,3 +33,12 @@ Then pin **Bandcamp Shuffle** from the toolbar's extensions (puzzle-piece) menu.
   `extension/firefox` hold per-browser files. `extension/build.sh` assembles
   `dist/chrome` and `dist/firefox`.
 - `bandcamp_shuffle.py` + `widget/` — the Omarchy (Linux) bar widget version.
+
+## Omarchy bar widget
+
+`./install.sh` links `~/.local/bin/bandcamp-shuffle` and installs the bar
+plugin. On the shuffle icon: **click** plays or skips, **right-click**
+(two-finger tap) opens the menu — Stop, *Search users or paste a link…*, saved
+collections, Resync — and **scroll** sets a Bandcamp-only volume. The same menu
+is `bandcamp-shuffle pick` (bound here to Super+Alt+B). From a terminal:
+`bandcamp-shuffle use bandcamp.com/<username>`, `search <text>`, `fan`.

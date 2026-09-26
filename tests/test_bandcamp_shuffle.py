@@ -2,6 +2,7 @@ import json
 import random
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -90,6 +91,127 @@ class AdjustVolumeTest(unittest.TestCase):
     def test_rejects_unknown_action(self):
         with self.assertRaises(ValueError):
             bs.adjust_volume(50, "loud")
+
+
+class ProfileInputTest(unittest.TestCase):
+    def test_reads_usernames_from_links_and_handles(self):
+        self.assertEqual(bs.parse_profile_input("https://bandcamp.com/fedexlatte"), "fedexlatte")
+        self.assertEqual(bs.parse_profile_input("bandcamp.com/fedexlatte"), "fedexlatte")
+        self.assertEqual(bs.parse_profile_input("  www.bandcamp.com/some_fan-1/wishlist?from=menubar "), "some_fan-1")
+        self.assertEqual(bs.parse_profile_input("@fedexlatte"), "fedexlatte")
+
+    def test_leaves_plain_text_and_non_profile_links_for_search(self):
+        for text in ["fedex", "two words", "", "https://artist.bandcamp.com/album/x",
+                     "https://bandcamp.com/search?q=x", "https://bandcamp.com/discover"]:
+            self.assertIsNone(bs.parse_profile_input(text), text)
+
+
+class FanPageTest(unittest.TestCase):
+    def test_reads_the_fan_behind_a_profile_page(self):
+        page = (FIXTURES / "fan_page.html").read_text()
+        self.assertEqual(bs.parse_fan_page(page),
+                         {"id": 2201246, "username": "fedexlatte", "name": "p", "collection_size": 1439})
+
+    def test_other_pages_are_not_fans(self):
+        self.assertIsNone(bs.parse_fan_page("<html>not a fan page</html>"))
+
+
+class FanSearchTest(unittest.TestCase):
+    def test_returns_fans_with_collection_sizes(self):
+        fans = bs.parse_fan_search(json.loads((FIXTURES / "search_fans.json").read_text()))
+        self.assertEqual(fans[0], {"id": fans[0]["id"], "username": "_fede", "name": "_fede", "collection_size": 9})
+        self.assertEqual(bs.parse_fan_search({"auto": {"results": [{"type": "b", "id": 1}]}}), [])
+        self.assertEqual(bs.parse_fan_search({}), [])
+
+
+class MenuRowTest(unittest.TestCase):
+    FAN = {"id": 1, "username": "some_fan", "name": "Some Fan"}
+
+    def test_row_shows_name_handle_and_size(self):
+        self.assertEqual(bs.fan_row(self.FAN, 1375), bs.GLYPH_FAN + "\tSome Fan\t@some_fan · 1,375 releases")
+        self.assertEqual(bs.fan_row(self.FAN, 1), bs.GLYPH_FAN + "\tSome Fan\t@some_fan · 1 release")
+        self.assertEqual(bs.fan_row(self.FAN, 0), bs.GLYPH_FAN + "\tSome Fan\t@some_fan · private or empty")
+        self.assertTrue(bs.fan_row(self.FAN, 3, current=True).startswith(bs.GLYPH_CURRENT + "\t"))
+
+    def test_selection_maps_back_to_username(self):
+        self.assertEqual(bs.username_from_selection("Some Fan\t@some_fan · 1,375 releases"), "some_fan")
+        self.assertIsNone(bs.username_from_selection("Resync current collection"))
+
+
+class PickMenuTest(unittest.TestCase):
+    FEDEX = bs.DEFAULT_FAN
+    OTHER = {"id": 9, "username": "_fede", "name": "_fede"}
+
+    def run_pick(self, choices, inputs=(), running=False, current=None, saved=None, found=()):
+        """Run pick() with scripted menu answers; return what it did."""
+        calls = {"switch": [], "stop": 0, "notify": [], "menus": []}
+        choices, inputs = list(choices), list(inputs)
+
+        def select(prompt, rows):
+            calls["menus"].append((prompt, rows))
+            return choices.pop(0) if choices else None
+
+        with mock.patch.multiple(
+            bs,
+            menu_select=select,
+            menu_input=lambda prompt: inputs.pop(0) if inputs else None,
+            running_pid=lambda: 123 if running else None,
+            current_fan=lambda: current or self.FEDEX,
+            saved_collections=lambda: saved if saved is not None else [(self.FEDEX, 1375), (self.OTHER, 9)],
+            search_fans=lambda text: list(found),
+            switch_to=lambda fan: calls["switch"].append(fan["username"]),
+            use=lambda target: calls["switch"].append(f"use:{target}"),
+            stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
+            notify=lambda message: calls["notify"].append(message),
+        ):
+            bs.pick()
+        return calls
+
+    def test_menu_lists_stop_search_saved_collections_and_resync(self):
+        rows = self.run_pick([], running=True)["menus"][0][1]
+        self.assertEqual([row.split("\t")[1] for row in rows],
+                         [bs.MENU_STOP, bs.MENU_SEARCH, "p", "_fede", bs.MENU_RESYNC])
+        self.assertTrue(rows[2].startswith(bs.GLYPH_CURRENT))  # fedexlatte is current
+
+    def test_stop_only_shows_while_playing(self):
+        rows = self.run_pick([])["menus"][0][1]
+        self.assertNotIn(bs.MENU_STOP, [row.split("\t")[1] for row in rows])
+
+    def test_back_to_default_shows_when_fedexlatte_is_not_saved(self):
+        rows = self.run_pick([], current=self.OTHER, saved=[(self.OTHER, 9)])["menus"][0][1]
+        self.assertIn(bs.MENU_DEFAULT, [row.split("\t")[1] for row in rows])
+
+    def test_choosing_a_saved_collection_switches_to_it(self):
+        self.assertEqual(self.run_pick(["_fede\t@_fede · 9 releases"])["switch"], ["_fede"])
+
+    def test_choosing_stop_stops(self):
+        self.assertEqual(self.run_pick([bs.MENU_STOP], running=True)["stop"], 1)
+
+    def test_dismissing_the_menu_does_nothing(self):
+        calls = self.run_pick([])
+        self.assertEqual((calls["switch"], calls["stop"], calls["notify"]), ([], 0, []))
+
+    def test_pasting_a_link_uses_it_directly(self):
+        calls = self.run_pick([bs.MENU_SEARCH], inputs=["bandcamp.com/someone"])
+        self.assertEqual(calls["switch"], ["use:bandcamp.com/someone"])
+        self.assertEqual(len(calls["menus"]), 1)  # no results list for a link
+
+    def test_searching_lists_users_then_switches_to_the_pick(self):
+        found = [{"id": 5, "username": "fede", "name": "Fede", "collection_size": 1},
+                 {"id": 6, "username": "fede_", "name": "fede_", "collection_size": 0}]
+        calls = self.run_pick([bs.MENU_SEARCH, "Fede\t@fede · 1 release"], inputs=["fede"], found=found)
+        self.assertEqual(calls["menus"][1][0], 'Users matching "fede"')
+        self.assertEqual(calls["switch"], ["fede"])
+
+    def test_picking_a_private_collection_explains_instead_of_switching(self):
+        found = [{"id": 6, "username": "fede_", "name": "fede_", "collection_size": 0}]
+        calls = self.run_pick([bs.MENU_SEARCH, "fede_\t@fede_ · private or empty"], inputs=["fede"], found=found)
+        self.assertEqual(calls["switch"], [])
+        self.assertIn("private or empty", calls["notify"][0])
+
+    def test_search_with_no_results_says_so(self):
+        calls = self.run_pick([bs.MENU_SEARCH], inputs=["zzzz"], found=[])
+        self.assertEqual(calls["notify"], ['No Bandcamp users match "zzzz"'])
 
 
 if __name__ == "__main__":

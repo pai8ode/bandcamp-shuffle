@@ -11,15 +11,18 @@ BarWidget {
   readonly property string command: Quickshell.env("HOME") + "/.local/bin/bandcamp-shuffle"
   property bool playing: false
   property int volume: 100
+  property string username: "fedexlatte"
+  property real lastScroll: 0 // polled volume is ignored briefly after a scroll
 
   function setVolume(level) {
     root.volume = Math.max(0, Math.min(100, level))
+    root.lastScroll = Date.now()
     Quickshell.execDetached([root.command, "volume", String(root.volume)])
     if (root.bar) root.bar.showTooltip(button, button.tooltipText)
   }
 
   function refresh() {
-    if (!statusProc.running) statusProc.running = true
+    if (!infoProc.running) infoProc.running = true
   }
 
   function run(action) {
@@ -31,22 +34,16 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   Process {
-    id: statusProc
-    command: [root.command, "status"]
-    onExited: function(exitCode) {
-      root.playing = exitCode === 0
-    }
-  }
-
-  Process {
-    id: volumeProc
-    command: [root.command, "volume"]
-    running: true
+    id: infoProc
+    command: [root.command, "info"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        const level = parseInt(text)
-        if (!isNaN(level)) root.volume = level
+        let info
+        try { info = JSON.parse(text) } catch (e) { return }
+        root.playing = info.playing
+        root.username = info.fan.username
+        if (Date.now() - root.lastScroll > 2000) root.volume = info.volume
       }
     }
   }
@@ -71,16 +68,15 @@ BarWidget {
     bar: root.bar
     text: ""
     dimmed: !root.playing
-    tooltipText: "Bandcamp shuffle · " + root.volume + "%\n" + (root.playing
-      ? "click: skip · right-click: stop · scroll: volume"
-      : "click: play · middle-click: resync · scroll: volume")
+    tooltipText: "Bandcamp shuffle · @" + root.username + " · " + root.volume + "%\n"
+      + (root.playing ? "click: skip" : "click: play")
+      + " · right-click: menu · scroll: volume"
     onWheelMoved: function(delta) {
       if (delta !== 0) root.setVolume(root.volume + (delta > 0 ? 5 : -5))
     }
     onPressed: function(b) {
-      if (b === Qt.RightButton) root.run("stop")
-      else if (b === Qt.MiddleButton) root.run("sync")
-      else root.run("start")
+      if (b === Qt.LeftButton) root.run("start")
+      else root.run("pick") // right-click (two-finger tap) or middle-click
     }
   }
 }
