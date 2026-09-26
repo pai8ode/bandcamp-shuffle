@@ -13,6 +13,7 @@ BarWidget {
   property int volume: 100
   property string username: "fedexlatte"
   property bool favorite: false
+  property bool favoritesOnly: false
   property string song: "" // "Artist - Title" of the song playing
   property real lastScroll: 0 // polled volume is ignored briefly after a scroll
 
@@ -46,6 +47,7 @@ BarWidget {
         root.playing = info.playing
         root.username = info.fan.username
         root.favorite = info.favorite
+        root.favoritesOnly = info.favorites_only === true
         root.song = info.song ? info.song.artist + " - " + info.song.title : ""
         if (Date.now() - root.lastScroll > 2000) root.volume = info.volume
       }
@@ -75,7 +77,9 @@ BarWidget {
       bar: root.bar
       text: "\uf074"
       dimmed: !root.playing
-      tooltipText: "Bandcamp shuffle · @" + root.username + " · " + root.volume + "%\n"
+      active: root.favoritesOnly // highlighted while shuffling favorites only
+      tooltipText: "Bandcamp shuffle · " + (root.favoritesOnly ? "★ favorites only" : "@" + root.username)
+        + " · " + root.volume + "%\n"
         + (root.playing ? "click: skip" : "click: play")
         + " · right-click: menu · scroll: volume"
       onWheelMoved: function(delta) {

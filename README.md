@@ -52,6 +52,10 @@ edited widget code on its own). The widget is three icons:
 - **🔍 search** — straight to the search box (`bandcamp-shuffle find`).
 - **☆ star** — adds the playing song to your favorites (★), or removes it.
 
+**Shuffle favorites only** (menu entry, or `bandcamp-shuffle favonly [on|off|toggle]`)
+plays only starred songs; the shuffle icon is highlighted while it's on, and the
+setting is saved. The browser add-ons have the same switch in their panel.
+
 Favorites go to `~/Documents/Bandcamp Favorites.txt` as `Artist - Title` lines,
 ready for playlist importers such as TuneMyMusic or Soundiiz, and to
 `Bandcamp Favorites.csv` with album, Bandcamp link and date.

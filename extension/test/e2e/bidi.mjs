@@ -2,7 +2,7 @@
 // argument to evaluate in the privileged browser window instead of a page.
 // Usage: node bidi.mjs <url-substring|chrome:> <js expression | sleep:ms | nav:url | click:selector | shot:path>...
 const [match, ...steps] = process.argv.slice(2);
-const ws = new WebSocket("ws://127.0.0.1:9223/session");
+const ws = new WebSocket(`ws://127.0.0.1:${process.env.BIDI_PORT || 9223}/session`);
 await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
 let id = 0; const pending = new Map();
 ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id) pending.get(m.id)?.(m); };
