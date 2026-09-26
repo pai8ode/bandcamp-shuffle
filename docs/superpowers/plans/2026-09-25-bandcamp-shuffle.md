@@ -56,3 +56,9 @@
 - Left → `start`, right → `stop`, middle → `sync`; invoked by absolute path `$HOME/.local/bin/bandcamp-shuffle` via `Quickshell.execDetached`.
 
 - [ ] `omarchy plugin validate widget`; install; `omarchy plugin enable pai.bandcamp-shuffle`; `omarchy bar put omarchy.media` and place both in the right section; confirm no shell errors and clicks work. Commit.
+
+### Task 4: Chrome extension (spec addendum "Chrome extension")
+- [ ] `chrome-extension/lib/shuffle.js` + `chrome-extension/test/shuffle.test.mjs` (TDD with node:test, fixtures incl. a saved tralbum_details response).
+- [ ] manifest, background.js, offscreen.html/js, popup.html/css/js, icons (magick).
+- [ ] Verify in Chromium with a temp profile + `--load-extension`: popup renders, playback starts, skip/stop/volume work, media session visible over MPRIS.
+- [ ] Zip, upload to Google Drive, commit.
