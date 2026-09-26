@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Continuous shuffle radio over a public Bandcamp collection."""
 
+import csv
 import html
+import io
 import json
 import os
 import random
@@ -32,6 +34,16 @@ VOLUME_FILE = CACHE_DIR / "volume"
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 PID_FILE = RUNTIME_DIR / "bandcamp-shuffle.pid"
 MPV_SOCKET = RUNTIME_DIR / "bandcamp-shuffle.sock"
+NOW_FILE = RUNTIME_DIR / "bandcamp-shuffle-now.json"  # the song playing, for favorites
+FAV_FIELDS = ["saved_at", "artist", "title", "album", "bandcamp_url"]
+
+
+def documents_dir():
+    try:
+        found = subprocess.run(["xdg-user-dir", "DOCUMENTS"], capture_output=True, text=True).stdout.strip()
+    except OSError:
+        found = ""
+    return Path(found) if found else Path.home() / "Documents"
 MAX_CACHE_AGE = 7 * 24 * 3600
 RECENT_LIMIT = 50
 MAX_FAILURES = 5
@@ -52,6 +64,7 @@ GLYPH_CURRENT = "\uf00c"
 GLYPH_FAN = "\uf007"
 GLYPH_HOME = "\uf015"
 GLYPH_RESYNC = "\uf021"
+GLYPH_STAR = "\uf005"
 
 
 def parse_tralbum(page):
@@ -174,6 +187,40 @@ def username_from_selection(selection):
     _, _, subtext = selection.partition("\t")
     match = re.match(r"@([\w-]+)", subtext)
     return match.group(1) if match else None
+
+
+def now_playing(track, release):
+    """What gets saved as a favorite: the song plus the release page it came from."""
+    return {"artist": track["artist"], "title": track["title"], "album": release.get("title") or "",
+            "bandcamp_url": release["url"]}
+
+
+def fav_line(song):
+    """"Artist - Title", the line format TuneMyMusic and Soundiiz import."""
+    return f"{song['artist']} - {song['title']}"
+
+
+def _same_song(row, song):
+    return row["bandcamp_url"] == song["bandcamp_url"] and row["title"] == song["title"]
+
+
+def is_favorite(rows, song):
+    return any(_same_song(row, song) for row in rows)
+
+
+def add_favorite(text, rows, song, saved_at):
+    """Append a song to the text list and the CSV rows; lines typed by hand are kept."""
+    if is_favorite(rows, song):
+        return text, rows
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + fav_line(song) + "\n", rows + [{**song, "saved_at": saved_at}]
+
+
+def remove_favorite(text, rows, song):
+    line = fav_line(song)
+    kept = [existing for existing in text.splitlines() if existing != line]
+    return ("\n".join(kept) + "\n" if kept else ""), [row for row in rows if not _same_song(row, song)]
 
 
 # --- I/O -------------------------------------------------------------------
@@ -381,7 +428,11 @@ def run():
                 tracks = []
             if not tracks:
                 print(f"nothing streamable: {release['url']}", flush=True)
-            ok = bool(tracks) and player.play(rng.choice(tracks))
+            ok = False
+            if tracks:
+                track = rng.choice(tracks)
+                write_json(NOW_FILE, now_playing(track, release))
+                ok = player.play(track)
             failures = 0 if ok else failures + 1
             if failures >= MAX_FAILURES:
                 notify(f"Stopped after {MAX_FAILURES} tracks in a row failed to play")
@@ -389,6 +440,7 @@ def run():
     finally:
         if running_pid() == os.getpid():
             PID_FILE.unlink(missing_ok=True)
+            NOW_FILE.unlink(missing_ok=True)
 
 
 def start():
@@ -420,7 +472,11 @@ def status():
 
 def info():
     """One-line JSON for the bar widget."""
-    print(json.dumps({"playing": bool(running_pid()), "volume": read_volume(), "fan": current_fan()}))
+    song = current_song()
+    print(json.dumps({
+        "playing": bool(running_pid()), "volume": read_volume(), "fan": current_fan(),
+        "song": song, "favorite": bool(song) and is_favorite(read_favorites()[1], song),
+    }))
 
 
 def fan():
@@ -450,6 +506,71 @@ def search(text):
         print(f"{found['username']}\t{found['name']}\t{found['collection_size']}")
 
 
+# --- Favorites ---------------------------------------------------------------
+# ~/Documents/Bandcamp Favorites.txt is the import-ready "Artist - Title" list;
+# the .csv next to it keeps album, Bandcamp link, and when it was saved.
+
+def favorites_paths():
+    docs = documents_dir()
+    return docs / "Bandcamp Favorites.txt", docs / "Bandcamp Favorites.csv"
+
+
+def read_favorites():
+    txt_path, csv_path = favorites_paths()
+    text = txt_path.read_text() if txt_path.exists() else ""
+    rows = list(csv.DictReader(io.StringIO(csv_path.read_text()))) if csv_path.exists() else []
+    return text, rows
+
+
+def write_favorites(text, rows):
+    txt_path, csv_path = favorites_paths()
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=FAV_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    for path, content in ((txt_path, text), (csv_path, out.getvalue())):
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(content)
+        tmp.replace(path)
+
+
+def current_song():
+    return read_json(NOW_FILE, None) if running_pid() else None
+
+
+def fav():
+    """Star the song that's playing, or unstar it if it's already a favorite."""
+    song = current_song()
+    if not song:
+        raise RuntimeError("Nothing is playing")
+    text, rows = read_favorites()
+    if is_favorite(rows, song):
+        write_favorites(*remove_favorite(text, rows, song))
+        notify(f"Removed from favorites: {fav_line(song)}")
+    else:
+        write_favorites(*add_favorite(text, rows, song, time.strftime("%Y-%m-%d %H:%M")))
+        notify(f"★ Saved to favorites: {fav_line(song)}")
+
+
+def favs():
+    txt_path, _ = favorites_paths()
+    print(txt_path)
+    print(read_favorites()[0], end="")
+
+
+def open_favorites():
+    txt_path, _ = favorites_paths()
+    if not txt_path.exists():
+        write_favorites(*read_favorites())
+    subprocess.Popen([omarchy_tool("omarchy-launch-editor"), str(txt_path)], start_new_session=True)
+
+
+def find():
+    """The search icon: straight to the search box."""
+    search_menu()
+
+
 # --- Menu (omarchy-menu-select / omarchy-menu-input) --------------------------
 
 def omarchy_tool(name):
@@ -472,6 +593,7 @@ MENU_STOP = "Stop"
 MENU_SEARCH = "Search users or paste a link…"
 MENU_DEFAULT = "Back to fedexlatte"
 MENU_RESYNC = "Resync current collection"
+MENU_FAVORITES = "Favorites list"
 
 
 def pick():
@@ -483,6 +605,7 @@ def pick():
     rows += [fan_row(f, size, current=f["id"] == current["id"]) for f, size in saved]
     if current["id"] != DEFAULT_FAN["id"] and all(f["id"] != DEFAULT_FAN["id"] for f, _ in saved):
         rows.append(f"{GLYPH_HOME}\t{MENU_DEFAULT}")
+    rows.append(f"{GLYPH_STAR}\t{MENU_FAVORITES}")
     rows.append(f"{GLYPH_RESYNC}\t{MENU_RESYNC}")
 
     choice = menu_select("Bandcamp shuffle", rows)
@@ -494,6 +617,8 @@ def pick():
         return search_menu()
     if choice == MENU_DEFAULT:
         return switch_to(DEFAULT_FAN)
+    if choice == MENU_FAVORITES:
+        return open_favorites()
     if choice == MENU_RESYNC:
         notify(f"Resyncing @{current['username']}…")
         items = sync(current)
@@ -561,11 +686,12 @@ def volume(action=None):
 COMMANDS = {
     "sync": sync, "run": run, "start": start, "skip": skip, "stop": stop, "status": status, "volume": volume,
     "info": info, "fan": fan, "use": use, "search": search, "pick": pick,
+    "fav": fav, "favs": favs, "find": find,
 }
 ONE_ARG = {"volume", "use", "search"}  # volume's argument is optional
 USAGE = (f"usage: bandcamp-shuffle {{{'|'.join(COMMANDS)}}}\n"
          "  volume [up|down|0-100]   use <bandcamp.com/username|@username>   search <text>")
-INTERACTIVE = {"use", "pick"}  # launched from the bar or a key: report problems as notifications
+INTERACTIVE = {"use", "pick", "fav", "find"}  # launched from the bar or a key: report problems as notifications
 
 
 def main(argv):

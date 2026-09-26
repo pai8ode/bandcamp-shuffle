@@ -12,6 +12,8 @@ BarWidget {
   property bool playing: false
   property int volume: 100
   property string username: "fedexlatte"
+  property bool favorite: false
+  property string song: "" // "Artist - Title" of the song playing
   property real lastScroll: 0 // polled volume is ignored briefly after a scroll
 
   function setVolume(level) {
@@ -30,8 +32,8 @@ BarWidget {
     refreshSoon.restart()
   }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  implicitWidth: row.implicitWidth
+  implicitHeight: row.implicitHeight
 
   Process {
     id: infoProc
@@ -43,6 +45,8 @@ BarWidget {
         try { info = JSON.parse(text) } catch (e) { return }
         root.playing = info.playing
         root.username = info.fan.username
+        root.favorite = info.favorite
+        root.song = info.song ? info.song.artist + " - " + info.song.title : ""
         if (Date.now() - root.lastScroll > 2000) root.volume = info.volume
       }
     }
@@ -62,21 +66,48 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: ""
-    dimmed: !root.playing
-    tooltipText: "Bandcamp shuffle · @" + root.username + " · " + root.volume + "%\n"
-      + (root.playing ? "click: skip" : "click: play")
-      + " · right-click: menu · scroll: volume"
-    onWheelMoved: function(delta) {
-      if (delta !== 0) root.setVolume(root.volume + (delta > 0 ? 5 : -5))
+  Row {
+    id: row
+    anchors.centerIn: parent
+
+    BarIconButton {
+      id: button
+      bar: root.bar
+      text: "\uf074"
+      dimmed: !root.playing
+      tooltipText: "Bandcamp shuffle · @" + root.username + " · " + root.volume + "%\n"
+        + (root.playing ? "click: skip" : "click: play")
+        + " · right-click: menu · scroll: volume"
+      onWheelMoved: function(delta) {
+        if (delta !== 0) root.setVolume(root.volume + (delta > 0 ? 5 : -5))
+      }
+      onPressed: function(b) {
+        if (b === Qt.LeftButton) root.run("start")
+        else root.run("pick") // right-click (two-finger tap) or middle-click
+      }
     }
-    onPressed: function(b) {
-      if (b === Qt.LeftButton) root.run("start")
-      else root.run("pick") // right-click (two-finger tap) or middle-click
+
+    BarIconButton {
+      id: searchButton
+      bar: root.bar
+      text: "\uf002"
+      dimmed: !root.playing
+      tooltipText: "Search Bandcamp users or paste a bandcamp.com link"
+      onPressed: function(b) { root.run("find") }
+    }
+
+    BarIconButton {
+      id: starButton
+      bar: root.bar
+      text: root.favorite ? "\uf005" : "\uf006"
+      dimmed: !root.playing
+      tooltipText: !root.playing ? "Favorites: play something to star it"
+        : (root.favorite ? "★ In favorites: " + root.song + "\nclick: remove" : "click: add to favorites\n" + root.song)
+      onPressed: function(b) {
+        if (!root.playing) return
+        root.favorite = !root.favorite // instant feedback; the next info poll confirms
+        root.run("fav")
+      }
     }
   }
 }

@@ -170,6 +170,7 @@ class PickMenuTest(unittest.TestCase):
             use=lambda target: calls["switch"].append(f"use:{target}"),
             stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
             notify=lambda message: calls["notify"].append(message),
+            open_favorites=lambda: calls.__setitem__("opened_favorites", True),
         ):
             bs.pick()
         return calls
@@ -177,7 +178,7 @@ class PickMenuTest(unittest.TestCase):
     def test_menu_lists_stop_search_saved_collections_and_resync(self):
         rows = self.run_pick([], running=True)["menus"][0][1]
         self.assertEqual([row.split("\t")[1] for row in rows],
-                         [bs.MENU_STOP, bs.MENU_SEARCH, "p", "_fede", bs.MENU_RESYNC])
+                         [bs.MENU_STOP, bs.MENU_SEARCH, "p", "_fede", bs.MENU_FAVORITES, bs.MENU_RESYNC])
         self.assertTrue(rows[2].startswith(bs.GLYPH_CURRENT))  # fedexlatte is current
 
     def test_stop_only_shows_while_playing(self):
@@ -190,6 +191,9 @@ class PickMenuTest(unittest.TestCase):
 
     def test_choosing_a_saved_collection_switches_to_it(self):
         self.assertEqual(self.run_pick(["_fede\t@_fede · 9 releases"])["switch"], ["_fede"])
+
+    def test_choosing_favorites_opens_the_list(self):
+        self.assertTrue(self.run_pick([bs.MENU_FAVORITES]).get("opened_favorites"))
 
     def test_choosing_stop_stops(self):
         self.assertEqual(self.run_pick([bs.MENU_STOP], running=True)["stop"], 1)
@@ -242,6 +246,44 @@ class UseSuggestionTest(unittest.TestCase):
                 bs.use("bandcamp.com/hotPai")
         self.assertEqual(str(caught.exception),
                          "No Bandcamp user @hotPai. Did you mean hotPai (@onepie)? Run: bandcamp-shuffle use onepie")
+
+
+class FavoritesTest(unittest.TestCase):
+    SONG = {"artist": "Clem Snide", "title": "Hilary", "album": "Moral Minority",
+            "bandcamp_url": "https://clemsnide.bandcamp.com/album/moral-minority"}
+    OTHER = {"artist": "Erykah Badu & The Alchemist", "title": "Witch Doctor", "album": "Before The World Blows",
+             "bandcamp_url": "https://controlfreaq.bandcamp.com/album/before-the-world-blows"}
+
+    def test_now_playing_combines_track_and_release(self):
+        track = {"title": "Hilary", "artist": "Clem Snide", "url": "https://t4.bcbits.com/stream/x"}
+        release = {"url": self.SONG["bandcamp_url"], "title": "Moral Minority", "artist": "Clem Snide"}
+        self.assertEqual(bs.now_playing(track, release), self.SONG)
+
+    def test_line_is_import_ready(self):
+        self.assertEqual(bs.fav_line(self.SONG), "Clem Snide - Hilary")
+
+    def test_add_appends_to_text_and_rows(self):
+        text, rows = bs.add_favorite("", [], self.SONG, "2026-09-25 23:40")
+        self.assertEqual(text, "Clem Snide - Hilary\n")
+        self.assertEqual(rows, [{**self.SONG, "saved_at": "2026-09-25 23:40"}])
+        self.assertTrue(bs.is_favorite(rows, self.SONG))
+        self.assertFalse(bs.is_favorite(rows, self.OTHER))
+
+    def test_adding_twice_does_not_duplicate(self):
+        text, rows = bs.add_favorite("", [], self.SONG, "t1")
+        self.assertEqual(bs.add_favorite(text, rows, self.SONG, "t2"), (text, rows))
+
+    def test_add_keeps_hand_written_lines(self):
+        text, _ = bs.add_favorite("my note\nSome Artist - Some Song", [], self.SONG, "t")
+        self.assertEqual(text, "my note\nSome Artist - Some Song\nClem Snide - Hilary\n")
+
+    def test_remove_drops_only_that_song(self):
+        text, rows = bs.add_favorite("my note\n", [], self.SONG, "t1")
+        text, rows = bs.add_favorite(text, rows, self.OTHER, "t2")
+        text, rows = bs.remove_favorite(text, rows, self.SONG)
+        self.assertEqual(text, "my note\nErykah Badu & The Alchemist - Witch Doctor\n")
+        self.assertEqual([r["title"] for r in rows], ["Witch Doctor"])
+        self.assertFalse(bs.is_favorite(rows, self.SONG))
 
 
 if __name__ == "__main__":

@@ -38,12 +38,23 @@ Then pin **Bandcamp Shuffle** from the toolbar's extensions (puzzle-piece) menu.
 
 ## Omarchy bar widget
 
-`./install.sh` links `~/.local/bin/bandcamp-shuffle` and installs the bar
-plugin. On the shuffle icon: **click** plays or skips, **right-click**
-(two-finger tap) opens the menu — Stop, *Search users or paste a link…*, saved
-collections, Resync — and **scroll** sets a Bandcamp-only volume. The same menu
-is `bandcamp-shuffle pick` (bound here to Super+Alt+B). From a terminal:
-`bandcamp-shuffle use bandcamp.com/<username>`, `search <text>`, `fan`.
+`./install.sh` links `~/.local/bin/bandcamp-shuffle`, installs the bar plugin,
+and restarts omarchy-shell when the widget changed (the shell doesn't load
+edited widget code on its own). The widget is three icons:
+
+- **⤮ shuffle** — click plays or skips; right-click (two-finger tap) opens the
+  menu: Stop, *Search users or paste a link…*, saved collections, Favorites
+  list, Resync; scroll sets a Bandcamp-only volume. The same menu is
+  `bandcamp-shuffle pick` (bound here to Super+Alt+B).
+- **🔍 search** — straight to the search box (`bandcamp-shuffle find`).
+- **☆ star** — adds the playing song to your favorites (★), or removes it.
+
+Favorites go to `~/Documents/Bandcamp Favorites.txt` as `Artist - Title` lines,
+ready for playlist importers such as TuneMyMusic or Soundiiz, and to
+`Bandcamp Favorites.csv` with album, Bandcamp link and date.
+
+From a terminal: `bandcamp-shuffle use bandcamp.com/<username>`, `search <text>`,
+`fan`, `fav`, `favs`.
 
 ## Releasing
 
