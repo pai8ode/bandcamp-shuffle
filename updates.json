@@ -11,6 +11,11 @@
           "version": "1.4.0",
           "update_link": "https://github.com/pai8ode/bandcamp-shuffle/releases/download/v1.4.0/bandcamp-shuffle-firefox.xpi",
           "update_hash": "sha256:1b1821084a62c5598e1b43f5afb9822b64bfb3b68a19384085471f8c389ef959"
+        },
+        {
+          "version": "1.5.0",
+          "update_link": "https://github.com/pai8ode/bandcamp-shuffle/releases/download/v1.5.0/bandcamp-shuffle-firefox.xpi",
+          "update_hash": "sha256:2515129d67c114048ba645cec6893ccba92447979c46f11b7cd67798168e01b6"
         }
       ]
     }
