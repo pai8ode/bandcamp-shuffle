@@ -6,8 +6,10 @@ plays a random track from it, and keeps going. No Bandcamp account needed.
 
 ## Install
 
-**Firefox** — download `bandcamp-shuffle-firefox.xpi` from the
-[latest release](../../releases/latest) and click *Add* when Firefox asks.
+**Firefox** — open
+[bandcamp-shuffle-firefox.xpi](https://github.com/pai8ode/bandcamp-shuffle/releases/latest/download/bandcamp-shuffle-firefox.xpi)
+in Firefox, then *Continue to Installation* → *Add*. From 1.3.0 on, Firefox
+updates it automatically.
 
 **Chrome / Edge** — download `bandcamp-shuffle-chrome.zip` from the latest
 release, unzip it somewhere permanent, open `chrome://extensions`, turn on
@@ -42,3 +44,10 @@ plugin. On the shuffle icon: **click** plays or skips, **right-click**
 collections, Resync — and **scroll** sets a Bandcamp-only volume. The same menu
 is `bandcamp-shuffle pick` (bound here to Super+Alt+B). From a terminal:
 `bandcamp-shuffle use bandcamp.com/<username>`, `search <text>`, `fan`.
+
+## Releasing
+
+`./release.sh <version>` bumps both manifests, runs the tests, signs the
+Firefox add-on with Mozilla (unlisted), publishes the GitHub release, and then
+adds the version to `updates.json`, which installed Firefox copies check for
+updates. It needs Mozilla API keys in `~/.config/bandcamp-shuffle/amo.env`.
