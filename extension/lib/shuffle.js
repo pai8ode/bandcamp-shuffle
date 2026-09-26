@@ -130,7 +130,26 @@ const FAV_FIELDS = ["saved_at", "artist", "title", "album", "bandcamp_url"];
 // The playing track carries its release page as `page`.
 export function songOf(track) {
   if (!track) return null;
-  return { artist: track.artist, title: track.title, album: track.album || "", bandcamp_url: track.page };
+  const song = { artist: track.artist, title: track.title, album: track.album || "", bandcamp_url: track.page };
+  // Release ids let "favorites only" re-fetch the song through bandcamp.com.
+  if (track.tralbumId) Object.assign(song, { band_id: track.bandId, tralbum_id: track.tralbumId, tralbum_type: track.tralbumType });
+  return song;
+}
+
+// Favorites as shuffle picks, shaped like collection items for tralbumDetailsUrl.
+// Favorites saved before release ids were kept can't be re-fetched, so they're left out.
+export function favoritePicks(favs) {
+  return favs
+    .filter((fav) => fav.tralbum_id && fav.title)
+    .map((fav) => ({
+      url: `${fav.bandcamp_url}#${fav.title}`, song: fav.title, page: fav.bandcamp_url,
+      bandId: fav.band_id, tralbumId: fav.tralbum_id, tralbumType: fav.tralbum_type,
+    }));
+}
+
+export function trackForFavorite(tracks, title) {
+  const wanted = title.trim().toLowerCase();
+  return tracks.find((track) => track.title.trim().toLowerCase() === wanted);
 }
 
 export const favLine = (song) => `${song.artist} - ${song.title}`;

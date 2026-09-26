@@ -11,7 +11,7 @@ let volumeDragging = false;
 
 function render(state) {
   if (!state) return;
-  const { playing, paused, track, status, volume, releases, fan, favorite, favorites } = state;
+  const { playing, paused, track, status, volume, releases, fan, favorite, favorites, favoritesOnly, playableFavorites } = state;
 
   $("fan-name").textContent = fan.name;
   $("fan-user").textContent = `@${fan.username}`;
@@ -40,6 +40,12 @@ function render(state) {
   $("star").setAttribute("aria-pressed", String(Boolean(favorite)));
   $("star").title = favorite ? "In favorites (click to remove)" : "Add to favorites";
   $("favs-link").textContent = favorites ? `Favorites (${favorites})` : "Favorites";
+  $("fav-only").checked = Boolean(favoritesOnly);
+  $("fav-only").disabled = !favoritesOnly && !playableFavorites;
+  $("fav-only-count").textContent = playableFavorites ? `(${playableFavorites})` : "";
+  $("fav-only-row").title = playableFavorites
+    ? "Shuffle only the songs you've starred. Stays on after closing the browser."
+    : "Star some songs with ☆ first";
   if (!$("favs").hidden && favorites !== shownFavorites) loadFavorites();
 
   $("releases").textContent = releases ? `${releases.toLocaleString()} releases` : "Collection not loaded yet";
@@ -155,6 +161,7 @@ async function copyText(text) {
 }
 
 $("star").addEventListener("click", async () => render(await send("fav")));
+$("fav-only").addEventListener("change", async (event) => render(await send("favonly", { value: event.target.checked })));
 $("favs-link").addEventListener("click", () => openFavorites($("favs").hidden));
 $("favs-close").addEventListener("click", () => openFavorites(false));
 $("copy").addEventListener("click", async () => {

@@ -25,7 +25,9 @@ SEARCH_API = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elasti
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) bandcamp-shuffle"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "bandcamp-shuffle"
 COLLECTIONS_DIR = CACHE_DIR / "collections"  # <fan id>.json: {"fan", "synced_at", "items"}
-FAN_FILE = CACHE_DIR / "fan.json"  # the collection being shuffled; fedexlatte when missing
+FAN_FILE = CACHE_DIR / "fan.json"
+FAVORITES_ONLY_FILE = CACHE_DIR / "favorites-only"  # present = shuffle only starred songs
+FAV_RECENT_FILE = CACHE_DIR / "recent-favorites.json"  # the collection being shuffled; fedexlatte when missing
 LEGACY_COLLECTION_FILE = CACHE_DIR / "collection.json"  # before per-fan caches
 LEGACY_RECENT_FILE = CACHE_DIR / "recent.json"
 OMARCHY_BIN = Path("/usr/share/omarchy/bin")
@@ -65,6 +67,7 @@ GLYPH_FAN = "\uf007"
 GLYPH_HOME = "\uf015"
 GLYPH_RESYNC = "\uf021"
 GLYPH_STAR = "\uf005"
+GLYPH_STAR_EMPTY = "\uf006"
 
 
 def parse_tralbum(page):
@@ -215,6 +218,35 @@ def add_favorite(text, rows, song, saved_at):
     if text and not text.endswith("\n"):
         text += "\n"
     return text + fav_line(song) + "\n", rows + [{**song, "saved_at": saved_at}]
+
+
+def favorite_items(rows):
+    """Favorites as shuffle picks: one per song, even when several share a release."""
+    return [
+        {"url": f"{row['bandcamp_url']}#{row['title']}", "page": row["bandcamp_url"], "song": row["title"],
+         "title": row.get("album") or "", "artist": row.get("artist") or ""}
+        for row in rows
+        if row.get("bandcamp_url") and row.get("title")
+    ]
+
+
+def track_for_favorite(tracks, title):
+    """The starred song among its release's tracks (titles compared loosely)."""
+    wanted = title.strip().casefold()
+    return next((track for track in tracks if track["title"].strip().casefold() == wanted), None)
+
+
+def favorites_only():
+    return FAVORITES_ONLY_FILE.exists()
+
+
+def set_favorites_only(on):
+    if on:
+        FAVORITES_ONLY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        FAVORITES_ONLY_FILE.touch()
+    else:
+        FAVORITES_ONLY_FILE.unlink(missing_ok=True)
+    return on
 
 
 def remove_favorite(text, rows, song):
@@ -383,8 +415,17 @@ class Player:
         self.skip()
 
     def play(self, track):
-        """Play one track; return True unless mpv failed on its own."""
-        self.skipping = False
+        """Play one track; return True unless mpv failed on its own.
+
+        A skip or stop that arrived between songs (while the next was being
+        fetched, with no mpv to terminate) applies to this track instead of
+        being lost.
+        """
+        if self.stopping:
+            return True
+        if self.skipping:
+            self.skipping = False
+            return True
         self.proc = subprocess.Popen([
             "mpv", "--no-video", "--really-quiet",
             f"--force-media-title={track['artist']} — {track['title']}",
@@ -393,10 +434,11 @@ class Player:
             track["url"],
         ])
         code = self.proc.wait()
-        if code != 0 and not self.skipping:
+        skipped, self.skipping = self.skipping, False
+        if code != 0 and not skipped:
             print(f"mpv exited {code}: {track['artist']} — {track['title']}", flush=True)
         self.proc = None
-        return code == 0 or self.skipping
+        return code == 0 or skipped
 
 
 def run():
@@ -418,16 +460,33 @@ def run():
                         break
                 else:
                     fan, recent = wanted, read_json(recent_file(wanted), [])
-            release = pick_release(items, recent, rng)
-            recent = push_recent(recent, release["url"], RECENT_LIMIT)
-            write_json(recent_file(fan), recent)
+            pool = []
+            if favorites_only():
+                pool = favorite_items(read_favorites()[1])
+                if not pool:
+                    set_favorites_only(False)
+                    notify("No favorites yet, so shuffling the whole collection. Star songs with ☆ first.")
+            if pool:
+                # Favorites only: a starred song, re-fetched for a fresh stream link.
+                pick = pick_release(pool, read_json(FAV_RECENT_FILE, []), rng)
+                write_json(FAV_RECENT_FILE, push_recent(read_json(FAV_RECENT_FILE, []), pick["url"],
+                                                        max(1, len(pool) // 2)))
+                release = {"url": pick["page"], "title": pick["title"]}
+            else:
+                pick = None
+                release = pick_release(items, recent, rng)
+                recent = push_recent(recent, release["url"], RECENT_LIMIT)
+                write_json(recent_file(fan), recent)
             try:
                 tracks = parse_tralbum(http_get(release["url"]))
             except OSError as err:
                 print(f"fetch failed: {release['url']}: {err}", flush=True)
                 tracks = []
+            if pick:
+                starred = track_for_favorite(tracks, pick["song"])
+                tracks = [starred] if starred else []
             if not tracks:
-                print(f"nothing streamable: {release['url']}", flush=True)
+                print(f"nothing streamable: {release['url']}{' (' + pick['song'] + ')' if pick else ''}", flush=True)
             ok = False
             if tracks:
                 track = rng.choice(tracks)
@@ -475,6 +534,7 @@ def info():
     song = current_song()
     print(json.dumps({
         "playing": bool(running_pid()), "volume": read_volume(), "fan": current_fan(),
+        "favorites_only": favorites_only(),
         "song": song, "favorite": bool(song) and is_favorite(read_favorites()[1], song),
     }))
 
@@ -566,6 +626,22 @@ def open_favorites():
     subprocess.Popen([omarchy_tool("omarchy-launch-editor"), str(txt_path)], start_new_session=True)
 
 
+def favonly(action="toggle"):
+    """Shuffle only starred songs: favonly [on|off|toggle]. The setting is saved."""
+    if action not in {"on", "off", "toggle"}:
+        raise ValueError("favonly takes on, off, or toggle")
+    on = set_favorites_only(not favorites_only() if action == "toggle" else action == "on")
+    count = len(favorite_items(read_favorites()[1]))
+    if on and not count:
+        set_favorites_only(False)
+        raise RuntimeError("No favorites yet. Star songs with ☆ first.")
+    print("on" if on else "off")
+    notify(f"Shuffling favorites only ({count} song{'' if count == 1 else 's'})" if on
+           else "Shuffling the whole collection")
+    if running_pid():
+        skip()  # the next song follows the new mode
+
+
 def find():
     """The search icon: straight to the search box."""
     search_menu()
@@ -594,6 +670,7 @@ MENU_SEARCH = "Search users or paste a link…"
 MENU_DEFAULT = "Back to fedexlatte"
 MENU_RESYNC = "Resync current collection"
 MENU_FAVORITES = "Favorites list"
+MENU_FAV_ONLY = "Shuffle favorites only"
 
 
 def pick():
@@ -606,6 +683,7 @@ def pick():
     if current["id"] != DEFAULT_FAN["id"] and all(f["id"] != DEFAULT_FAN["id"] for f, _ in saved):
         rows.append(f"{GLYPH_HOME}\t{MENU_DEFAULT}")
     rows.append(f"{GLYPH_STAR}\t{MENU_FAVORITES}")
+    rows.append(f"{GLYPH_CURRENT if favorites_only() else GLYPH_STAR_EMPTY}\t{MENU_FAV_ONLY}")
     rows.append(f"{GLYPH_RESYNC}\t{MENU_RESYNC}")
 
     choice = menu_select("Bandcamp shuffle", rows)
@@ -619,6 +697,8 @@ def pick():
         return switch_to(DEFAULT_FAN)
     if choice == MENU_FAVORITES:
         return open_favorites()
+    if choice == MENU_FAV_ONLY:
+        return favonly()
     if choice == MENU_RESYNC:
         notify(f"Resyncing @{current['username']}…")
         items = sync(current)
@@ -686,12 +766,13 @@ def volume(action=None):
 COMMANDS = {
     "sync": sync, "run": run, "start": start, "skip": skip, "stop": stop, "status": status, "volume": volume,
     "info": info, "fan": fan, "use": use, "search": search, "pick": pick,
-    "fav": fav, "favs": favs, "find": find,
+    "fav": fav, "favs": favs, "find": find, "favonly": favonly,
 }
-ONE_ARG = {"volume", "use", "search"}  # volume's argument is optional
+ONE_ARG = {"volume", "use", "search", "favonly"}  # volume's and favonly's argument is optional
 USAGE = (f"usage: bandcamp-shuffle {{{'|'.join(COMMANDS)}}}\n"
-         "  volume [up|down|0-100]   use <bandcamp.com/username|@username>   search <text>")
-INTERACTIVE = {"use", "pick", "fav", "find"}  # launched from the bar or a key: report problems as notifications
+         "  volume [up|down|0-100]   use <bandcamp.com/username|@username>   search <text>\n"
+         "  favonly [on|off|toggle]")
+INTERACTIVE = {"use", "pick", "fav", "find", "favonly"}  # launched from the bar or a key: report problems as notifications
 
 
 def main(argv):

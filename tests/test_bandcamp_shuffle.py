@@ -1,8 +1,10 @@
 import json
 import random
+import signal
 import sys
 import unittest
 from unittest import mock
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -171,6 +173,8 @@ class PickMenuTest(unittest.TestCase):
             stop=lambda: calls.__setitem__("stop", calls["stop"] + 1),
             notify=lambda message: calls["notify"].append(message),
             open_favorites=lambda: calls.__setitem__("opened_favorites", True),
+            favorites_only=lambda: False,
+            favonly=lambda: calls.__setitem__("toggled_favonly", True),
         ):
             bs.pick()
         return calls
@@ -178,7 +182,8 @@ class PickMenuTest(unittest.TestCase):
     def test_menu_lists_stop_search_saved_collections_and_resync(self):
         rows = self.run_pick([], running=True)["menus"][0][1]
         self.assertEqual([row.split("\t")[1] for row in rows],
-                         [bs.MENU_STOP, bs.MENU_SEARCH, "p", "_fede", bs.MENU_FAVORITES, bs.MENU_RESYNC])
+                         [bs.MENU_STOP, bs.MENU_SEARCH, "p", "_fede", bs.MENU_FAVORITES, bs.MENU_FAV_ONLY,
+                          bs.MENU_RESYNC])
         self.assertTrue(rows[2].startswith(bs.GLYPH_CURRENT))  # fedexlatte is current
 
     def test_stop_only_shows_while_playing(self):
@@ -194,6 +199,9 @@ class PickMenuTest(unittest.TestCase):
 
     def test_choosing_favorites_opens_the_list(self):
         self.assertTrue(self.run_pick([bs.MENU_FAVORITES]).get("opened_favorites"))
+
+    def test_choosing_favorites_only_toggles_it(self):
+        self.assertTrue(self.run_pick([bs.MENU_FAV_ONLY]).get("toggled_favonly"))
 
     def test_choosing_stop_stops(self):
         self.assertEqual(self.run_pick([bs.MENU_STOP], running=True)["stop"], 1)
@@ -284,6 +292,76 @@ class FavoritesTest(unittest.TestCase):
         self.assertEqual(text, "my note\nErykah Badu & The Alchemist - Witch Doctor\n")
         self.assertEqual([r["title"] for r in rows], ["Witch Doctor"])
         self.assertFalse(bs.is_favorite(rows, self.SONG))
+
+
+class FavoritesOnlyTest(unittest.TestCase):
+    ROWS = [
+        {"saved_at": "t1", "artist": "Clem Snide", "title": "Hilary", "album": "Moral Minority",
+         "bandcamp_url": "https://clemsnide.bandcamp.com/album/moral-minority"},
+        {"saved_at": "t2", "artist": "Clem Snide", "title": "Moral Minority", "album": "Moral Minority",
+         "bandcamp_url": "https://clemsnide.bandcamp.com/album/moral-minority"},
+    ]
+
+    def test_each_favorite_is_its_own_pick(self):
+        items = bs.favorite_items(self.ROWS)
+        self.assertEqual(len({item["url"] for item in items}), 2)  # same release, two songs
+        self.assertEqual(items[0]["page"], "https://clemsnide.bandcamp.com/album/moral-minority")
+        self.assertEqual(items[0]["song"], "Hilary")
+        self.assertEqual(items[0]["title"], "Moral Minority")  # album, as now_playing expects
+
+    def test_rows_without_a_link_are_skipped(self):
+        self.assertEqual(bs.favorite_items([{"title": "x", "bandcamp_url": ""}]), [])
+
+    def test_finds_the_starred_track_on_its_release(self):
+        tracks = [{"title": "Intro", "artist": "a", "url": "u1"}, {"title": "Hilary", "artist": "a", "url": "u2"}]
+        self.assertEqual(bs.track_for_favorite(tracks, "Hilary")["url"], "u2")
+        self.assertEqual(bs.track_for_favorite(tracks, "hilary ")["url"], "u2")
+        self.assertIsNone(bs.track_for_favorite(tracks, "Gone"))
+
+    def test_mode_toggles_and_persists(self):
+        with mock.patch.object(bs, "FAVORITES_ONLY_FILE", Path(self.enterContext(TemporaryDirectory())) / "flag"):
+            self.assertFalse(bs.favorites_only())
+            self.assertTrue(bs.set_favorites_only(True))
+            self.assertTrue(bs.favorites_only())
+            self.assertFalse(bs.set_favorites_only(False))
+            self.assertFalse(bs.favorites_only())
+
+
+class PlayerSignalTest(unittest.TestCase):
+    """Skip and stop can arrive between songs, while the next one is being fetched."""
+    TRACK = {"artist": "a", "title": "t", "url": "u"}
+
+    def setUp(self):
+        handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGUSR1, signal.SIGTERM, signal.SIGINT)}
+        self.addCleanup(lambda: [signal.signal(sig, handler) for sig, handler in handlers.items()])
+        self.popen = self.enterContext(mock.patch.object(bs.subprocess, "Popen"))
+        self.popen.return_value.wait.return_value = 0
+        self.enterContext(mock.patch.object(bs, "read_volume", return_value=100))
+        self.player = bs.Player()
+
+    def test_skip_between_songs_skips_the_next_one(self):
+        self.player.skip()
+        self.assertTrue(self.player.play(self.TRACK))
+        self.popen.assert_not_called()
+        self.player.play(self.TRACK)  # the skip was used up
+        self.popen.assert_called_once()
+
+    def test_stop_between_songs_plays_nothing(self):
+        self.player.stop()
+        self.player.play(self.TRACK)
+        self.popen.assert_not_called()
+        self.assertTrue(self.player.stopping)
+
+    def test_skip_during_a_song_ends_it_and_is_used_up(self):
+        def skip_while_playing():
+            self.player.skip()
+            return -15
+        self.popen.return_value.wait.side_effect = skip_while_playing
+        self.assertTrue(self.player.play(self.TRACK))  # skipped counts as fine, not a failure
+        self.popen.return_value.terminate.assert_called_once()
+        self.popen.return_value.wait.side_effect = None
+        self.popen.return_value.wait.return_value = 1
+        self.assertFalse(self.player.play(self.TRACK))  # a real mpv failure afterwards still counts
 
 
 if __name__ == "__main__":

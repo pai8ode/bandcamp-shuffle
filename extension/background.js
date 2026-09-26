@@ -7,6 +7,7 @@ import {
   DEFAULT_FAN, COLLECTION_API, SEARCH_API, parseCollectionPage, dedupe, tralbumDetailsUrl,
   parseTralbumDetails, pickRelease, pushRecent, adjustVolume, profileUrl, parseFanPage,
   fanSearchBody, parseFanSearch, songOf, isFavorite, addFavorite, removeFavorite,
+  favoritePicks, trackForFavorite, RECENT_LIMIT,
 } from "./lib/shuffle.js";
 
 const RESYNC_AFTER = 7 * 24 * 3600 * 1000;
@@ -29,12 +30,13 @@ async function currentFan() {
 async function getState() {
   const { player = IDLE } = await api.storage.session.get("player");
   const fan = await currentFan();
-  const stored = await api.storage.local.get(["volume", "favorites", collectionKey(fan)]);
+  const stored = await api.storage.local.get(["volume", "favorites", "favoritesOnly", collectionKey(fan)]);
   const collection = stored[collectionKey(fan)];
   const favorites = stored.favorites || [];
   return {
     ...player, volume: stored.volume ?? 100, fan, releases: collection?.items.length || 0,
     favorite: isFavorite(favorites, songOf(player.track)), favorites: favorites.length,
+    favoritesOnly: Boolean(stored.favoritesOnly), playableFavorites: favoritePicks(favorites).length,
   };
 }
 
@@ -126,20 +128,32 @@ async function playNext() {
   const gen = ++generation;
   await setPlayer({ playing: true, paused: false, status: "Picking a track…" });
 
-  const fan = await currentFan();
-  let items;
-  try {
-    items = await loadCollection(fan);
-  } catch (err) {
-    return stop(err.message);
+  // Favorites only: shuffle starred songs instead of the collection.
+  const { favoritesOnly = false } = await api.storage.local.get("favoritesOnly");
+  let items = favoritesOnly ? favoritePicks(await getFavorites()) : [];
+  let notice = "";
+  if (favoritesOnly && !items.length) {
+    await api.storage.local.set({ favoritesOnly: false });
+    notice = "No playable favorites yet, so shuffling the whole collection";
   }
-  let { [recentKey(fan)]: recent = [] } = await api.storage.local.get(recentKey(fan));
+  const fromFavorites = items.length > 0;
+  const recentStore = fromFavorites ? "recent:favorites" : recentKey(await currentFan());
+  // With few favorites, remember fewer so it doesn't fall back to repeats.
+  const recentLimit = fromFavorites ? Math.max(1, Math.floor(items.length / 2)) : RECENT_LIMIT;
+  if (!fromFavorites) {
+    try {
+      items = await loadCollection(await currentFan());
+    } catch (err) {
+      return stop(err.message);
+    }
+  }
+  let { [recentStore]: recent = [] } = await api.storage.local.get(recentStore);
   let { failures = 0 } = await api.storage.session.get("failures");
 
   while (gen === generation) {
     const release = pickRelease(items, recent);
-    recent = pushRecent(recent, release.url);
-    await api.storage.local.set({ [recentKey(fan)]: recent });
+    recent = pushRecent(recent, release.url, recentLimit);
+    await api.storage.local.set({ [recentStore]: recent });
 
     let tracks = [];
     try {
@@ -149,12 +163,17 @@ async function playNext() {
       console.warn("fetch failed", release.url, err);
     }
     if (gen !== generation) return;
+    if (release.song) tracks = tracks.filter((t) => t === trackForFavorite(tracks, release.song));
 
     if (tracks.length) {
-      const track = { ...tracks[Math.floor(Math.random() * tracks.length)], page: release.url };
+      const track = {
+        ...tracks[Math.floor(Math.random() * tracks.length)],
+        page: release.page ?? release.url,
+        bandId: release.bandId, tralbumId: release.tralbumId, tralbumType: release.tralbumType,
+      };
       const { volume = 100 } = await api.storage.local.get("volume");
       await api.storage.session.set({ failures });
-      await setPlayer({ track, status: "" });
+      await setPlayer({ track, status: notice });
       await audio.play(track, volume);
       return;
     }
@@ -216,6 +235,21 @@ async function toggleFavorite() {
   await setPlayer({});
 }
 
+// on / off / toggle; the choice is saved, so it survives closing the browser.
+async function setFavoritesOnly(value) {
+  const { favoritesOnly = false } = await api.storage.local.get("favoritesOnly");
+  const on = value === undefined || value === "toggle" ? !favoritesOnly : Boolean(value);
+  const playable = favoritePicks(await getFavorites()).length;
+  if (on && !playable) {
+    await setPlayer({ status: "Star some songs first: favorites only needs at least one" });
+    return;
+  }
+  await api.storage.local.set({ favoritesOnly: on });
+  const { playing } = await getState();
+  if (playing) return playNext(); // the next song follows the new mode
+  await setPlayer({ status: on ? `Favorites only: ${playable} song${playable === 1 ? "" : "s"}` : "" });
+}
+
 async function unfavorite(song) {
   await api.storage.local.set({ favorites: removeFavorite(await getFavorites(), song) });
   await setPlayer({});
@@ -242,6 +276,7 @@ const commands = {
   volume: (msg) => setVolume(msg.value),
   select: (msg) => selectFan(msg.fan),
   fav: toggleFavorite,
+  favonly: (msg) => setFavoritesOnly(msg.value),
   unfav: (msg) => unfavorite(msg.song),
   state: () => {},
 };

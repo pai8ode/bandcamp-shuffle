@@ -6,6 +6,7 @@ import {
   pickRelease, pushRecent, adjustVolume,
   DEFAULT_FAN, parseProfileInput, parseFanPage, parseFanSearch,
   songOf, favLine, isFavorite, addFavorite, removeFavorite, favoritesText, favoritesCsv,
+  favoritePicks, trackForFavorite,
 } from "../lib/shuffle.js";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url)));
@@ -151,4 +152,25 @@ test("favoritesText and favoritesCsv match the Omarchy files", () => {
     "saved_at,artist,title,album,bandcamp_url\r\n" +
     "t1,Clem Snide,Hilary,Moral Minority,https://clemsnide.bandcamp.com/album/moral-minority\r\n" +
     't2,Erykah Badu & The Alchemist,Witch Doctor,"Before, ""The"" World",https://controlfreaq.bandcamp.com/album/before-the-world-blows\r\n');
+});
+
+test("songOf keeps the release ids when the track has them", () => {
+  const song = songOf({ ...TRACK, bandId: 1, tralbumId: 2, tralbumType: "a" });
+  assert.deepEqual(song, { ...SONG, band_id: 1, tralbum_id: 2, tralbum_type: "a" });
+});
+
+test("favoritePicks makes one pick per playable favorite", () => {
+  const playable = { ...SONG, band_id: 1, tralbum_id: 2, tralbum_type: "a" };
+  const picks = favoritePicks([playable, { ...playable, title: "Other song" }, SONG]); // SONG has no ids
+  assert.equal(picks.length, 2);
+  assert.notEqual(picks[0].url, picks[1].url);
+  assert.deepEqual({ ...picks[0], url: undefined }, {
+    url: undefined, song: "Hilary", page: SONG.bandcamp_url, bandId: 1, tralbumId: 2, tralbumType: "a",
+  });
+});
+
+test("trackForFavorite finds the starred song loosely", () => {
+  const tracks = [{ title: "Intro" }, { title: "Hilary" }];
+  assert.equal(trackForFavorite(tracks, " hilary"), tracks[1]);
+  assert.equal(trackForFavorite(tracks, "Gone"), undefined);
 });

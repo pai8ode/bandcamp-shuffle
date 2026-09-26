@@ -2,7 +2,7 @@
 // Usage: node cdp.mjs <url-substring|url> <js expression | sleep:ms | shot:path>...
 import { writeFileSync } from "node:fs";
 const [match, ...steps] = process.argv.slice(2);
-const PORT = 9333;
+const PORT = Number(process.env.CDP_PORT || 9333);
 const list = await (await fetch(`http://localhost:${PORT}/json/list`)).json();
 let target = list.find((t) => t.url.includes(match));
 if (!target && match.includes("://")) target = await (await fetch(`http://localhost:${PORT}/json/new?${match}`, { method: "PUT" })).json();
