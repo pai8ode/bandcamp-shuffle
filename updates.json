@@ -1,0 +1,13 @@
+{
+  "addons": {
+    "bandcamp-shuffle@pai.omarchy": {
+      "updates": [
+        {
+          "version": "1.3.0",
+          "update_link": "https://github.com/pai8ode/bandcamp-shuffle/releases/download/v1.3.0/bandcamp-shuffle-firefox.xpi",
+          "update_hash": "sha256:cd94bd6b34f9ba2b167075ab96513a15adfa6d68accc2905c25e811008055800"
+        }
+      ]
+    }
+  }
+}
