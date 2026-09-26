@@ -1,5 +1,8 @@
-// Owns the shuffle loop and all saved state. The offscreen page only plays audio.
+// Owns the shuffle loop and all saved state. Playback goes through the
+// browser-specific audio.js (Chrome: offscreen document; Firefox: this page).
 
+import { api } from "./lib/api.js";
+import * as audio from "./audio.js";
 import {
   FAN_ID, COLLECTION_API, parseCollectionPage, dedupe, tralbumDetailsUrl,
   parseTralbumDetails, pickRelease, pushRecent, adjustVolume,
@@ -14,36 +17,15 @@ const IDLE = { playing: false, paused: false, track: null, status: "" };
 // between events; collection, recent history, and volume persist in storage.local.
 
 async function getState() {
-  const { player = IDLE } = await chrome.storage.session.get("player");
-  const { volume = 100, collection = null } = await chrome.storage.local.get(["volume", "collection"]);
+  const { player = IDLE } = await api.storage.session.get("player");
+  const { volume = 100, collection = null } = await api.storage.local.get(["volume", "collection"]);
   return { ...player, volume, releases: collection?.items.length || 0 };
 }
 
 async function setPlayer(patch) {
-  const { player = IDLE } = await chrome.storage.session.get("player");
-  await chrome.storage.session.set({ player: { ...player, ...patch } });
-  chrome.runtime.sendMessage({ target: "popup", state: await getState() }).catch(() => {});
-}
-
-// --- Offscreen audio page ---------------------------------------------------
-
-let creating = null;
-
-async function ensureOffscreen() {
-  if (await chrome.offscreen.hasDocument()) return;
-  creating ??= chrome.offscreen
-    .createDocument({
-      url: "offscreen.html",
-      reasons: ["AUDIO_PLAYBACK"],
-      justification: "Plays shuffled tracks from your Bandcamp collection",
-    })
-    .finally(() => { creating = null; });
-  await creating;
-}
-
-async function toOffscreen(msg) {
-  await ensureOffscreen();
-  await chrome.runtime.sendMessage({ ...msg, target: "offscreen" });
+  const { player = IDLE } = await api.storage.session.get("player");
+  await api.storage.session.set({ player: { ...player, ...patch } });
+  api.runtime.sendMessage({ target: "popup", state: await getState() }).catch(() => {});
 }
 
 // --- Collection -------------------------------------------------------------
@@ -73,13 +55,13 @@ async function doSync() {
     await setPlayer({ status: `Syncing collection… ${items.length}` });
   }
   items = dedupe(items);
-  await chrome.storage.local.set({ collection: { syncedAt: Date.now(), items } });
+  await api.storage.local.set({ collection: { syncedAt: Date.now(), items } });
   await setPlayer({ status: `Synced ${items.length} releases` });
   return items;
 }
 
 async function loadCollection() {
-  const { collection } = await chrome.storage.local.get("collection");
+  const { collection } = await api.storage.local.get("collection");
   if (collection?.items.length && Date.now() - collection.syncedAt < RESYNC_AFTER) return collection.items;
   return sync();
 }
@@ -98,13 +80,13 @@ async function playNext() {
   } catch (err) {
     return stop(`Couldn't load your collection: ${err.message}`);
   }
-  let { recent = [] } = await chrome.storage.local.get("recent");
-  let { failures = 0 } = await chrome.storage.session.get("failures");
+  let { recent = [] } = await api.storage.local.get("recent");
+  let { failures = 0 } = await api.storage.session.get("failures");
 
   while (gen === generation) {
     const release = pickRelease(items, recent);
     recent = pushRecent(recent, release.url);
-    await chrome.storage.local.set({ recent });
+    await api.storage.local.set({ recent });
 
     let tracks = [];
     try {
@@ -117,10 +99,10 @@ async function playNext() {
 
     if (tracks.length) {
       const track = tracks[Math.floor(Math.random() * tracks.length)];
-      const { volume = 100 } = await chrome.storage.local.get("volume");
-      await chrome.storage.session.set({ failures });
+      const { volume = 100 } = await api.storage.local.get("volume");
+      await api.storage.session.set({ failures });
       await setPlayer({ track, status: "" });
-      await toOffscreen({ cmd: "play", track, volume });
+      await audio.play(track, volume);
       return;
     }
     console.warn("nothing streamable", release.url);
@@ -130,39 +112,42 @@ async function playNext() {
 
 async function stop(status = "") {
   generation++;
-  await chrome.storage.session.set({ failures: 0 });
-  if (await chrome.offscreen.hasDocument()) await chrome.offscreen.closeDocument();
+  await api.storage.session.set({ failures: 0 });
+  await audio.stop();
   await setPlayer({ ...IDLE, status });
 }
 
 async function trackFailed() {
-  let { failures = 0 } = await chrome.storage.session.get("failures");
+  let { failures = 0 } = await api.storage.session.get("failures");
   failures++;
-  await chrome.storage.session.set({ failures });
+  await api.storage.session.set({ failures });
   if (failures >= MAX_FAILURES) return stop(`Stopped: ${MAX_FAILURES} tracks in a row wouldn't play`);
   return playNext();
 }
 
 async function togglePause() {
+  const gen = generation;
   const { playing, paused } = await getState();
-  if (!playing || !(await chrome.offscreen.hasDocument())) return playNext();
-  await toOffscreen({ cmd: paused ? "resume" : "pause" });
+  const alive = await audio.isAlive();
+  if (gen !== generation) return; // a stop or skip landed while we were checking
+  if (!playing || !alive) return playNext();
+  await (paused ? audio.resume() : audio.pause());
 }
 
 async function setVolume(action) {
   const { volume } = await getState();
   const level = adjustVolume(volume, action);
-  await chrome.storage.local.set({ volume: level });
-  if (await chrome.offscreen.hasDocument()) await toOffscreen({ cmd: "volume", volume: level });
+  await api.storage.local.set({ volume: level });
+  await audio.setVolume(level);
   await setPlayer({});
 }
 
-// Chrome closes the audio page after ~30 s without sound (for example a long
-// pause), so treat a missing page as stopped instead of showing a dead track.
+// Chrome closes its audio page after ~30 s without sound (for example a long
+// pause), so treat dead audio as stopped instead of showing a dead track.
 async function reconcile() {
   const state = await getState();
-  if (state.playing && state.track && !syncing && !(await chrome.offscreen.hasDocument())) {
-    await chrome.storage.session.set({ player: { ...IDLE, status: "Stopped after a long pause" } });
+  if (state.playing && state.track && !syncing && !(await audio.isAlive())) {
+    await api.storage.session.set({ player: { ...IDLE, status: "Stopped after a long pause" } });
   }
   return getState();
 }
@@ -180,7 +165,7 @@ const commands = {
 
 const events = {
   playing: async () => {
-    await chrome.storage.session.set({ failures: 0 });
+    await api.storage.session.set({ failures: 0 });
     await setPlayer({ paused: false });
   },
   pause: () => setPlayer({ paused: true }),
@@ -190,9 +175,13 @@ const events = {
   stop: () => stop(),
 };
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.target !== "background") return;
-  const handler = msg.cmd ? commands[msg.cmd] : events[msg.event];
+audio.init((event) => {
+  Promise.resolve(events[event]?.()).catch((err) => console.error(event, err));
+});
+
+api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.target !== "background" || !msg.cmd) return;
+  const handler = commands[msg.cmd];
   if (!handler) return;
   // Long-running commands (a pick, a sync) finish in the background; the popup
   // gets progress from setPlayer broadcasts, so answer with the current state.

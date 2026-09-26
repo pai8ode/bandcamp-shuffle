@@ -1,10 +1,12 @@
+import { api } from "./lib/api.js";
+
 // Audio-only page: plays what the background worker sends and reports back.
-// Offscreen documents can use chrome.runtime but not chrome.storage.
+// Offscreen documents can use api.runtime but not chrome.storage.
 
 const audio = document.querySelector("audio");
 
 function tell(event) {
-  chrome.runtime.sendMessage({ target: "background", event }).catch(() => {});
+  api.runtime.sendMessage({ target: "background", event }).catch(() => {});
 }
 
 function setMetadata(track) {
@@ -16,7 +18,7 @@ function setMetadata(track) {
   });
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+api.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "offscreen") return;
   if (msg.cmd === "play") {
     audio.volume = msg.volume / 100;

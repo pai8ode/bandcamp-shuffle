@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Bandcamp Shuffle",
   "version": "1.0.0",
-  "description": "Shuffle-play your Bandcamp collection, one random track after another.",
+  "description": "Shuffle-play the fedexlatte Bandcamp collection, one random track after another.",
   "permissions": ["offscreen", "storage"],
   "host_permissions": ["https://bandcamp.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },

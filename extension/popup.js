@@ -1,7 +1,9 @@
+import { api } from "./lib/api.js";
+
 const $ = (id) => document.getElementById(id);
 
 function send(cmd, value) {
-  return chrome.runtime.sendMessage({ target: "background", cmd, value });
+  return api.runtime.sendMessage({ target: "background", cmd, value });
 }
 
 let volumeDragging = false;
@@ -11,7 +13,7 @@ function render(state) {
   const { playing, paused, track, status, volume, releases } = state;
 
   $("title").textContent = track ? track.title : "Nothing playing";
-  $("artist").textContent = track ? track.artist : "Shuffle your Bandcamp collection";
+  $("artist").textContent = track ? track.artist : "Shuffle the fedexlatte collection";
   $("album").textContent = track ? track.album : "";
   const art = $("art");
   art.style.backgroundImage = track?.art ? `url("${track.art}")` : "";
@@ -32,7 +34,7 @@ function render(state) {
   $("sync").disabled = (status || "").startsWith("Syncing");
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+api.runtime.onMessage.addListener((msg) => {
   if (msg.target === "popup") render(msg.state);
 });
 
