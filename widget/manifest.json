@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "pai.bandcamp-shuffle",
+  "name": "Bandcamp shuffle",
+  "version": "1.0.0",
+  "author": "pai",
+  "description": "Shuffle-play the Bandcamp collection",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Bandcamp shuffle",
+    "description": "Shuffle-play the Bandcamp collection",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
