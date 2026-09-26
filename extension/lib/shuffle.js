@@ -121,3 +121,45 @@ function decodeHtml(text) {
   return text.replace(/&(quot|amp|lt|gt|#39|#x27|#(\d+));/g, (_, name, code) =>
     code ? String.fromCharCode(Number(code)) : { quot: '"', amp: "&", lt: "<", gt: ">", "#39": "'", "#x27": "'" }[name]);
 }
+
+// --- Favorites ---------------------------------------------------------------
+// Same shape and file formats as the Omarchy widget's favorites.
+
+const FAV_FIELDS = ["saved_at", "artist", "title", "album", "bandcamp_url"];
+
+// The playing track carries its release page as `page`.
+export function songOf(track) {
+  if (!track) return null;
+  return { artist: track.artist, title: track.title, album: track.album || "", bandcamp_url: track.page };
+}
+
+export const favLine = (song) => `${song.artist} - ${song.title}`;
+
+const sameSong = (a, b) => a.bandcamp_url === b.bandcamp_url && a.title === b.title;
+
+export function isFavorite(favs, song) {
+  return Boolean(song) && favs.some((fav) => sameSong(fav, song));
+}
+
+export function addFavorite(favs, song, savedAt) {
+  return isFavorite(favs, song) ? favs : [...favs, { ...song, saved_at: savedAt }];
+}
+
+export function removeFavorite(favs, song) {
+  return favs.filter((fav) => !sameSong(fav, song));
+}
+
+// "Artist - Title" lines, the format TuneMyMusic and Soundiiz import.
+export function favoritesText(favs) {
+  return favs.map((fav) => favLine(fav) + "\n").join("");
+}
+
+export function favoritesCsv(favs) {
+  const cell = (value) => {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return [FAV_FIELDS, ...favs.map((fav) => FAV_FIELDS.map((field) => fav[field]))]
+    .map((row) => row.map(cell).join(",") + "\r\n")
+    .join("");
+}

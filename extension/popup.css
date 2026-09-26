@@ -45,7 +45,7 @@ svg {
   stroke-linejoin: round;
 }
 
-.now { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: center; }
+.now { display: grid; grid-template-columns: 72px 1fr auto; gap: 12px; align-items: center; }
 
 .art {
   width: 72px;
@@ -172,3 +172,43 @@ footer {
 .who span { color: var(--muted); font-size: 12px; }
 
 .picker-foot { display: flex; justify-content: space-between; font-size: 12px; }
+
+.star {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+}
+.star:hover { color: var(--text); }
+.star.on { color: var(--accent); }
+.star.on svg { fill: currentColor; }
+.star svg { width: 22px; height: 22px; }
+
+.footer-links { display: flex; gap: 14px; }
+
+.favs { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.favs-head { display: flex; justify-content: space-between; align-items: center; }
+.favs-actions { display: flex; gap: 6px; }
+.favs-actions .chip { flex: none; white-space: nowrap; }
+.favs-actions #copy { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chip {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+.chip:hover:not(:disabled) { border-color: var(--muted); }
+.chip:disabled { opacity: 0.5; cursor: default; }
+.favs-note { color: var(--muted); font-size: 12px; min-height: 16px; }
+.favs-note:empty { display: none; }
+.fav-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 220px; overflow-y: auto; }
+.fav-list li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; padding: 5px 2px; border-radius: 6px; }
+.fav-list li:hover { background: var(--surface); }
+.fav-list a { color: inherit; text-decoration: none; min-width: 0; display: grid; }
+.fav-list a strong, .fav-list a span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fav-list a span { color: var(--muted); font-size: 12px; }
+.fav-list .remove { width: 26px; height: 26px; border-radius: 50%; background: none; color: var(--muted); font-size: 15px; }
+.fav-list .remove:hover { color: var(--text); background: var(--line); }

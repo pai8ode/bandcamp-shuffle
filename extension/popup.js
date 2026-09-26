@@ -1,5 +1,5 @@
 import { api } from "./lib/api.js";
-import { DEFAULT_FAN, parseProfileInput } from "./lib/shuffle.js";
+import { DEFAULT_FAN, parseProfileInput, favLine, favoritesText, favoritesCsv } from "./lib/shuffle.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,7 +11,7 @@ let volumeDragging = false;
 
 function render(state) {
   if (!state) return;
-  const { playing, paused, track, status, volume, releases, fan } = state;
+  const { playing, paused, track, status, volume, releases, fan, favorite, favorites } = state;
 
   $("fan-name").textContent = fan.name;
   $("fan-user").textContent = `@${fan.username}`;
@@ -35,6 +35,13 @@ function render(state) {
   if (!volumeDragging) $("volume").value = volume;
   $("volume-value").textContent = `${volume}%`;
 
+  $("star").hidden = !track;
+  $("star").classList.toggle("on", Boolean(favorite));
+  $("star").setAttribute("aria-pressed", String(Boolean(favorite)));
+  $("star").title = favorite ? "In favorites (click to remove)" : "Add to favorites";
+  $("favs-link").textContent = favorites ? `Favorites (${favorites})` : "Favorites";
+  if (!$("favs").hidden && favorites !== shownFavorites) loadFavorites();
+
   $("releases").textContent = releases ? `${releases.toLocaleString()} releases` : "Collection not loaded yet";
   $("sync").disabled = (status || "").startsWith("Loading");
 }
@@ -56,6 +63,109 @@ volume.addEventListener("input", () => {
   send("volume", { value: Number(volume.value) });
 });
 
+// --- Favorites --------------------------------------------------------------
+
+let favoritesList = [];
+let shownFavorites = -1; // count the open list was drawn with
+
+function favNote(text) {
+  $("favs-note").textContent = text;
+}
+
+function drawFavorites() {
+  shownFavorites = favoritesList.length;
+  for (const id of ["copy", "dl-txt", "dl-csv"]) $(id).disabled = !favoritesList.length;
+  if (!favoritesList.length) {
+    favNote("No favorites yet: tap ☆ next to a song to save it.");
+    return $("fav-list").replaceChildren();
+  }
+  $("fav-list").replaceChildren(...[...favoritesList].reverse().map((song) => {
+    const link = document.createElement("a");
+    link.href = song.bandcamp_url;
+    link.target = "_blank";
+    link.title = "Open on Bandcamp";
+    const name = document.createElement("strong");
+    name.textContent = song.title;
+    const detail = document.createElement("span");
+    detail.textContent = [song.artist, song.album].filter(Boolean).join(" · ");
+    link.append(name, detail);
+
+    const remove = document.createElement("button");
+    remove.className = "remove";
+    remove.textContent = "✕";
+    remove.title = `Remove ${favLine(song)}`;
+    remove.addEventListener("click", async () => {
+      render(await send("unfav", { song }));
+      loadFavorites();
+    });
+
+    const li = document.createElement("li");
+    li.append(link, remove);
+    return li;
+  }));
+}
+
+async function loadFavorites() {
+  const res = await send("favorites");
+  favoritesList = res?.favorites || [];
+  drawFavorites();
+}
+
+function openFavorites(open) {
+  $("favs").hidden = !open;
+  if (open) {
+    openPicker(false);
+    favNote("");
+    loadFavorites();
+  }
+}
+
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// Returns whether the text reached the clipboard. Browsers only allow this
+// during a real click, and the older execCommand path covers some that refuse
+// the clipboard API.
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    area.remove();
+    return copied;
+  }
+}
+
+$("star").addEventListener("click", async () => render(await send("fav")));
+$("favs-link").addEventListener("click", () => openFavorites($("favs").hidden));
+$("favs-close").addEventListener("click", () => openFavorites(false));
+$("copy").addEventListener("click", async () => {
+  const n = favoritesList.length;
+  favNote(await copyText(favoritesText(favoritesList))
+    ? `Copied ${n} song${n === 1 ? "" : "s"}. Paste into TuneMyMusic or Soundiiz to make a Spotify / Apple Music playlist.`
+    : "Your browser blocked copying. Use .txt to download the list instead.");
+});
+$("dl-txt").addEventListener("click", () => download("Bandcamp Favorites.txt", favoritesText(favoritesList), "text/plain"));
+$("dl-csv").addEventListener("click", () => download("Bandcamp Favorites.csv", favoritesCsv(favoritesList), "text/csv"));
+
 // --- Collection picker ------------------------------------------------------
 
 const picker = $("picker");
@@ -66,6 +176,7 @@ let timer;
 
 function openPicker(open) {
   picker.hidden = !open;
+  if (open) $("favs").hidden = true;
   $("change").setAttribute("aria-expanded", String(open));
   $("change").textContent = open ? "Cancel" : "Change";
   if (open) {

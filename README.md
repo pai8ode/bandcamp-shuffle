@@ -27,6 +27,9 @@ Then pin **Bandcamp Shuffle** from the toolbar's extensions (puzzle-piece) menu.
 - **Pause** and **Stop**
 - **Volume** — a separate volume just for Bandcamp Shuffle
 - **Resync** — refresh the collection (also happens weekly)
+- **☆ Favorites** — star the playing song; *Favorites* lists them with links,
+  **Copy for Spotify/Apple Music** (`Artist - Song` lines for TuneMyMusic or
+  Soundiiz), and **.txt** / **.csv** downloads matching the Omarchy files
 - Media keys (play/pause, next) and the system media overlay work too
 
 ## Layout

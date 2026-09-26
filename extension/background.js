@@ -6,7 +6,7 @@ import * as audio from "./audio.js";
 import {
   DEFAULT_FAN, COLLECTION_API, SEARCH_API, parseCollectionPage, dedupe, tralbumDetailsUrl,
   parseTralbumDetails, pickRelease, pushRecent, adjustVolume, profileUrl, parseFanPage,
-  fanSearchBody, parseFanSearch,
+  fanSearchBody, parseFanSearch, songOf, isFavorite, addFavorite, removeFavorite,
 } from "./lib/shuffle.js";
 
 const RESYNC_AFTER = 7 * 24 * 3600 * 1000;
@@ -29,9 +29,13 @@ async function currentFan() {
 async function getState() {
   const { player = IDLE } = await api.storage.session.get("player");
   const fan = await currentFan();
-  const stored = await api.storage.local.get(["volume", collectionKey(fan)]);
+  const stored = await api.storage.local.get(["volume", "favorites", collectionKey(fan)]);
   const collection = stored[collectionKey(fan)];
-  return { ...player, volume: stored.volume ?? 100, fan, releases: collection?.items.length || 0 };
+  const favorites = stored.favorites || [];
+  return {
+    ...player, volume: stored.volume ?? 100, fan, releases: collection?.items.length || 0,
+    favorite: isFavorite(favorites, songOf(player.track)), favorites: favorites.length,
+  };
 }
 
 async function setPlayer(patch) {
@@ -147,7 +151,7 @@ async function playNext() {
     if (gen !== generation) return;
 
     if (tracks.length) {
-      const track = tracks[Math.floor(Math.random() * tracks.length)];
+      const track = { ...tracks[Math.floor(Math.random() * tracks.length)], page: release.url };
       const { volume = 100 } = await api.storage.local.get("volume");
       await api.storage.session.set({ failures });
       await setPlayer({ track, status: "" });
@@ -191,6 +195,32 @@ async function setVolume(action) {
   await setPlayer({});
 }
 
+// --- Favorites --------------------------------------------------------------
+
+const savedAt = () => new Date().toLocaleString("sv").slice(0, 16); // "2026-09-25 23:40"
+
+async function getFavorites() {
+  const { favorites = [] } = await api.storage.local.get("favorites");
+  return favorites;
+}
+
+// Stars the playing song, or unstars it if it's already a favorite.
+async function toggleFavorite() {
+  const { track } = await getState();
+  const song = songOf(track);
+  if (!song) return;
+  const favorites = await getFavorites();
+  await api.storage.local.set({
+    favorites: isFavorite(favorites, song) ? removeFavorite(favorites, song) : addFavorite(favorites, song, savedAt()),
+  });
+  await setPlayer({});
+}
+
+async function unfavorite(song) {
+  await api.storage.local.set({ favorites: removeFavorite(await getFavorites(), song) });
+  await setPlayer({});
+}
+
 // Chrome closes its audio page after ~30 s without sound (for example a long
 // pause), so treat dead audio as stopped instead of showing a dead track.
 async function reconcile() {
@@ -211,6 +241,8 @@ const commands = {
   sync: async () => sync(await currentFan()).catch((err) => setPlayer({ status: err.message })),
   volume: (msg) => setVolume(msg.value),
   select: (msg) => selectFan(msg.fan),
+  fav: toggleFavorite,
+  unfav: (msg) => unfavorite(msg.song),
   state: () => {},
 };
 
@@ -218,6 +250,7 @@ const commands = {
 const queries = {
   search: (msg) => searchFans(msg.value),
   lookup: (msg) => lookupFan(msg.value),
+  favorites: async () => ({ favorites: await getFavorites() }),
 };
 
 const events = {

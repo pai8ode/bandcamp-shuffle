@@ -35,6 +35,9 @@
         <div class="artist" id="artist">Shuffle the fedexlatte collection</div>
         <div class="album" id="album"></div>
       </div>
+      <button id="star" class="star" title="Add to favorites" aria-pressed="false" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 3.2l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17.2l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>
+      </button>
     </section>
 
     <div class="status" id="status" role="status"></div>
@@ -58,9 +61,26 @@
       <output id="volume-value">100%</output>
     </label>
 
+    <section class="favs" id="favs" hidden>
+      <div class="favs-head">
+        <strong>Favorites</strong>
+        <button id="favs-close" class="link">Done</button>
+      </div>
+      <div class="favs-actions">
+        <button id="copy" class="chip" title="Copy as Artist - Song lines for TuneMyMusic or Soundiiz">Copy for Spotify/Apple Music</button>
+        <button id="dl-txt" class="chip" title="Download Bandcamp Favorites.txt">.txt</button>
+        <button id="dl-csv" class="chip" title="Download Bandcamp Favorites.csv">.csv</button>
+      </div>
+      <div class="favs-note" id="favs-note" role="status"></div>
+      <ul class="fav-list" id="fav-list"></ul>
+    </section>
+
     <footer>
       <span id="releases"></span>
-      <button id="sync" class="link">Resync</button>
+      <span class="footer-links">
+        <button id="favs-link" class="link">Favorites</button>
+        <button id="sync" class="link">Resync</button>
+      </span>
     </footer>
   </main>
   <script type="module" src="popup.js"></script>

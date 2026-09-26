@@ -5,6 +5,7 @@ import {
   parseCollectionPage, dedupe, parseTralbumDetails, tralbumDetailsUrl,
   pickRelease, pushRecent, adjustVolume,
   DEFAULT_FAN, parseProfileInput, parseFanPage, parseFanSearch,
+  songOf, favLine, isFavorite, addFavorite, removeFavorite, favoritesText, favoritesCsv,
 } from "../lib/shuffle.js";
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(name, import.meta.url)));
@@ -113,4 +114,41 @@ test("parseFanSearch returns fans with collection sizes", () => {
   assert.equal(results[0].username, "_fede");
   assert.equal(parseFanSearch({ auto: { results: [{ type: "b", id: 1 }] } }).length, 0);
   assert.deepEqual(parseFanSearch({}), []);
+});
+
+const TRACK = { title: "Hilary", artist: "Clem Snide", album: "Moral Minority", art: "a.jpg", url: "https://t4.bcbits.com/x",
+  page: "https://clemsnide.bandcamp.com/album/moral-minority" };
+const SONG = { artist: "Clem Snide", title: "Hilary", album: "Moral Minority", bandcamp_url: "https://clemsnide.bandcamp.com/album/moral-minority" };
+const OTHER = { artist: "Erykah Badu & The Alchemist", title: "Witch Doctor", album: "Before, \"The\" World",
+  bandcamp_url: "https://controlfreaq.bandcamp.com/album/before-the-world-blows" };
+
+test("songOf keeps what a favorite needs from the playing track", () => {
+  assert.deepEqual(songOf(TRACK), SONG);
+  assert.equal(songOf(null), null);
+});
+
+test("favLine is the importer format", () => {
+  assert.equal(favLine(SONG), "Clem Snide - Hilary");
+});
+
+test("addFavorite appends once, removeFavorite removes only that song", () => {
+  let favs = addFavorite([], SONG, "2026-09-25 23:40");
+  assert.deepEqual(favs, [{ ...SONG, saved_at: "2026-09-25 23:40" }]);
+  assert.equal(addFavorite(favs, SONG, "later"), favs);
+  favs = addFavorite(favs, OTHER, "t2");
+  assert.ok(isFavorite(favs, SONG) && isFavorite(favs, OTHER));
+  favs = removeFavorite(favs, SONG);
+  assert.deepEqual(favs.map((f) => f.title), ["Witch Doctor"]);
+  assert.ok(!isFavorite(favs, SONG));
+  assert.ok(!isFavorite(favs, null));
+});
+
+test("favoritesText and favoritesCsv match the Omarchy files", () => {
+  const favs = [{ ...SONG, saved_at: "t1" }, { ...OTHER, saved_at: "t2" }];
+  assert.equal(favoritesText(favs), "Clem Snide - Hilary\nErykah Badu & The Alchemist - Witch Doctor\n");
+  assert.equal(favoritesText([]), "");
+  assert.equal(favoritesCsv(favs),
+    "saved_at,artist,title,album,bandcamp_url\r\n" +
+    "t1,Clem Snide,Hilary,Moral Minority,https://clemsnide.bandcamp.com/album/moral-minority\r\n" +
+    't2,Erykah Badu & The Alchemist,Witch Doctor,"Before, ""The"" World",https://controlfreaq.bandcamp.com/album/before-the-world-blows\r\n');
 });

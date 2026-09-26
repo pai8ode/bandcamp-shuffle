@@ -1,6 +1,6 @@
 // Drive Firefox over WebDriver BiDi (port 9223). Use "chrome:" as the first
 // argument to evaluate in the privileged browser window instead of a page.
-// Usage: node bidi.mjs <url-substring|chrome:> <js expression | sleep:ms | nav:url | click:selector>...
+// Usage: node bidi.mjs <url-substring|chrome:> <js expression | sleep:ms | nav:url | click:selector | shot:path>...
 const [match, ...steps] = process.argv.slice(2);
 const ws = new WebSocket("ws://127.0.0.1:9223/session");
 await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
@@ -28,6 +28,13 @@ try {
         { type: "pointerMove", x: point.x, y: point.y }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 },
       ] }] });
       console.log("clicked", JSON.stringify(point));
+      continue;
+    }
+    if (step.startsWith("shot:")) {
+      const r = await call("browsingContext.captureScreenshot", { context: ctx.context });
+      if (r.type === "error") { console.log("screenshot error:", r.message); continue; }
+      (await import("node:fs")).writeFileSync(step.slice(5), Buffer.from(r.result.data, "base64"));
+      console.log("saved", step.slice(5));
       continue;
     }
     if (step.startsWith("nav:")) {
