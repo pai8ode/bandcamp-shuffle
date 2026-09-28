@@ -1,3 +1,4 @@
+import http.client
 import json
 import random
 import signal
@@ -362,6 +363,69 @@ class PlayerSignalTest(unittest.TestCase):
         self.popen.return_value.wait.side_effect = None
         self.popen.return_value.wait.return_value = 1
         self.assertFalse(self.player.play(self.TRACK))  # a real mpv failure afterwards still counts
+
+
+class RunLoopTest(unittest.TestCase):
+    """run() with every file it touches redirected into a temporary folder."""
+
+    ITEMS = [{"url": f"https://x.bandcamp.com/album/{i}", "title": "a", "artist": "b"} for i in range(3)]
+
+    def setUp(self):
+        tmp = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(mock.patch.multiple(
+            bs, CACHE_DIR=tmp, PID_FILE=tmp / "pid", NOW_FILE=tmp / "now.json", LOCK_FILE=tmp / "lock",
+            FAVORITES_ONLY_FILE=tmp / "favorites-only", FAV_RECENT_FILE=tmp / "recent-favorites.json",
+        ))
+        self.notes = []
+        self.enterContext(mock.patch.multiple(
+            bs, load_collection=lambda fan: self.ITEMS, notify=self.notes.append, running_pid=lambda: None))
+
+    def test_a_bad_release_page_is_skipped_not_fatal(self):
+        errors = [http.client.IncompleteRead(b"partial"), ValueError("Expecting value"), KeyError("trackinfo"),
+                  OSError("offline"), OSError("offline")]
+        fetched = []
+
+        def fetch(url):
+            fetched.append(url)
+            raise errors[len(fetched) - 1]
+
+        with mock.patch.object(bs, "http_get", fetch):
+            bs.run()  # must return, not raise
+        self.assertEqual(len(fetched), bs.MAX_FAILURES)
+        self.assertIn("Stopped after", self.notes[-1])
+
+    def test_a_second_player_exits_instead_of_playing_alongside(self):
+        held = bs.acquire_run_lock(bs.LOCK_FILE)
+        self.assertIsNotNone(held)
+        with mock.patch.object(bs, "http_get", mock.Mock(side_effect=AssertionError("second player played"))):
+            with self.assertRaises(SystemExit) as caught:
+                bs.run()
+        self.assertEqual(str(caught.exception), "already running")
+        self.assertFalse(bs.PID_FILE.exists())
+        held.close()
+
+
+class RunLockTest(unittest.TestCase):
+    def test_only_one_holder_at_a_time(self):
+        path = Path(self.enterContext(TemporaryDirectory())) / "lock"
+        first = bs.acquire_run_lock(path)
+        self.assertIsNotNone(first)
+        self.assertIsNone(bs.acquire_run_lock(path))
+        first.close()  # released when the holder exits
+        again = bs.acquire_run_lock(path)
+        self.assertIsNotNone(again)
+        again.close()
+
+
+class SameNamedFavoritesTest(unittest.TestCase):
+    def test_removing_one_keeps_the_other_releases_line(self):
+        single = {"artist": "Artist", "title": "Song", "album": "Single", "bandcamp_url": "https://x.bandcamp.com/track/song"}
+        deluxe = {**single, "album": "Deluxe LP", "bandcamp_url": "https://x.bandcamp.com/album/deluxe"}
+        text, rows = bs.add_favorite("", [], single, "t1")
+        text, rows = bs.add_favorite(text, rows, deluxe, "t2")
+        text, rows = bs.remove_favorite(text, rows, single)
+        self.assertEqual([row["album"] for row in rows], ["Deluxe LP"])
+        self.assertEqual(text, "Artist - Song\n")
 
 
 if __name__ == "__main__":

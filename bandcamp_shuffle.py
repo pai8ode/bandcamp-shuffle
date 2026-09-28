@@ -2,6 +2,7 @@
 """Continuous shuffle radio over a public Bandcamp collection."""
 
 import csv
+import fcntl
 import html
 import io
 import json
@@ -35,6 +36,7 @@ LOG_FILE = CACHE_DIR / "log"
 VOLUME_FILE = CACHE_DIR / "volume"
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
 PID_FILE = RUNTIME_DIR / "bandcamp-shuffle.pid"
+LOCK_FILE = RUNTIME_DIR / "bandcamp-shuffle.lock"  # held by the one running player
 MPV_SOCKET = RUNTIME_DIR / "bandcamp-shuffle.sock"
 NOW_FILE = RUNTIME_DIR / "bandcamp-shuffle-now.json"  # the song playing, for favorites
 FAV_FIELDS = ["saved_at", "artist", "title", "album", "bandcamp_url"]
@@ -250,9 +252,12 @@ def set_favorites_only(on):
 
 
 def remove_favorite(text, rows, song):
+    """Drop one "Artist - Title" line: the same song starred from another release keeps its own line."""
+    lines = text.splitlines()
     line = fav_line(song)
-    kept = [existing for existing in text.splitlines() if existing != line]
-    return ("\n".join(kept) + "\n" if kept else ""), [row for row in rows if not _same_song(row, song)]
+    if line in lines:
+        del lines[len(lines) - 1 - lines[::-1].index(line)]  # the newest copy
+    return ("\n".join(lines) + "\n" if lines else ""), [row for row in rows if not _same_song(row, song)]
 
 
 # --- I/O -------------------------------------------------------------------
@@ -396,6 +401,23 @@ def running_pid():
     return pid if b"bandcamp" in cmdline else None
 
 
+def acquire_run_lock(path):
+    """Take the exclusive player lock, or return None if another player holds it.
+
+    The lock lives as long as the returned file stays open (it's released when
+    the process exits), so two players started at the same instant can't both
+    get it — a PID-file check alone lets both through.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path, "a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
 class Player:
     def __init__(self):
         self.proc = None
@@ -442,7 +464,8 @@ class Player:
 
 
 def run():
-    if running_pid():
+    lock = acquire_run_lock(LOCK_FILE)
+    if lock is None:
         sys.exit("already running")
     PID_FILE.write_text(str(os.getpid()))
     try:
@@ -479,8 +502,8 @@ def run():
                 write_json(recent_file(fan), recent)
             try:
                 tracks = parse_tralbum(http_get(release["url"]))
-            except OSError as err:
-                print(f"fetch failed: {release['url']}: {err}", flush=True)
+            except Exception as err:  # a cut-off download or garbled page skips this release, not the player
+                print(f"couldn't load {release['url']}: {type(err).__name__}: {err}", flush=True)
                 tracks = []
             if pick:
                 starred = track_for_favorite(tracks, pick["song"])
@@ -497,9 +520,9 @@ def run():
                 notify(f"Stopped after {MAX_FAILURES} tracks in a row failed to play")
                 break
     finally:
-        if running_pid() == os.getpid():
-            PID_FILE.unlink(missing_ok=True)
-            NOW_FILE.unlink(missing_ok=True)
+        PID_FILE.unlink(missing_ok=True)
+        NOW_FILE.unlink(missing_ok=True)
+        lock.close()
 
 
 def start():
