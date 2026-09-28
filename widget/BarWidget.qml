@@ -14,6 +14,7 @@ BarWidget {
   property string username: "fedexlatte"
   property bool favorite: false
   property bool favoritesOnly: false
+  property color gold: "#FFC61A" // star gold for the current theme, from `info`
   property string song: "" // "Artist - Title" of the song playing
   property real lastScroll: 0 // polled volume is ignored briefly after a scroll
 
@@ -48,6 +49,7 @@ BarWidget {
         root.username = info.fan.username
         root.favorite = info.favorite
         root.favoritesOnly = info.favorites_only === true
+        if (info.gold) root.gold = info.gold
         root.song = info.song ? info.song.artist + " - " + info.song.title : ""
         if (Date.now() - root.lastScroll > 2000) root.volume = info.volume
       }
@@ -77,7 +79,8 @@ BarWidget {
       bar: root.bar
       text: "\uf074"
       dimmed: !root.playing
-      active: root.favoritesOnly // highlighted while shuffling favorites only
+      active: root.favoritesOnly // gold while shuffling favorites only
+      activeColor: root.gold
       tooltipText: "Bandcamp shuffle · " + (root.favoritesOnly ? "★ favorites only" : "@" + root.username)
         + " · " + root.volume + "%\n"
         + (root.playing ? "click: skip" : "click: play")

@@ -428,5 +428,18 @@ class SameNamedFavoritesTest(unittest.TestCase):
         self.assertEqual(text, "Artist - Song\n")
 
 
+class ThemeGoldTest(unittest.TestCase):
+    # Theme "yellow" slots aren't reliably gold (matte-black's is red, lupine's blue),
+    # so the highlight is a fixed star gold, deeper on light themes for contrast.
+    def test_dark_themes_get_bright_gold(self):
+        self.assertEqual(bs.theme_gold('mode = "dark"\nyellow = "#b90a0a"\n'), bs.GOLD_ON_DARK)
+        self.assertEqual(bs.theme_gold(""), bs.GOLD_ON_DARK)
+
+    def test_light_themes_get_deeper_gold(self):
+        self.assertEqual(bs.theme_gold('mode = "light"\nbackground = "#FFFCF0"\n'), bs.GOLD_ON_LIGHT)
+
+    def test_golds_are_the_measured_pair(self):
+        self.assertEqual((bs.GOLD_ON_DARK, bs.GOLD_ON_LIGHT), ("#FFC61A", "#8F6A00"))
+
 if __name__ == "__main__":
     unittest.main()

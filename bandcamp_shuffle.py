@@ -40,6 +40,12 @@ LOCK_FILE = RUNTIME_DIR / "bandcamp-shuffle.lock"  # held by the one running pla
 MPV_SOCKET = RUNTIME_DIR / "bandcamp-shuffle.sock"
 NOW_FILE = RUNTIME_DIR / "bandcamp-shuffle-now.json"  # the song playing, for favorites
 FAV_FIELDS = ["saved_at", "artist", "title", "album", "bandcamp_url"]
+THEME_COLORS_FILE = (Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+                     / "omarchy" / "current" / "theme" / "colors.toml")
+# Favorites-only highlight. Picked by measuring all installed Omarchy themes:
+# contrast >= 4.4 against each bar and clearly apart from each normal icon color.
+GOLD_ON_DARK = "#FFC61A"
+GOLD_ON_LIGHT = "#8F6A00"
 
 
 def documents_dir():
@@ -198,6 +204,12 @@ def now_playing(track, release):
     """What gets saved as a favorite: the song plus the release page it came from."""
     return {"artist": track["artist"], "title": track["title"], "album": release.get("title") or "",
             "bandcamp_url": release["url"]}
+
+
+def theme_gold(colors_toml):
+    """The favorites-only highlight for the current theme: a star gold, deeper on light themes."""
+    light = re.search(r'^mode\s*=\s*"light"', colors_toml, re.MULTILINE)
+    return GOLD_ON_LIGHT if light else GOLD_ON_DARK
 
 
 def fav_line(song):
@@ -558,6 +570,7 @@ def info():
     print(json.dumps({
         "playing": bool(running_pid()), "volume": read_volume(), "fan": current_fan(),
         "favorites_only": favorites_only(),
+        "gold": theme_gold(THEME_COLORS_FILE.read_text() if THEME_COLORS_FILE.exists() else ""),
         "song": song, "favorite": bool(song) and is_favorite(read_favorites()[1], song),
     }))
 
